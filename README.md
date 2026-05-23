@@ -29,6 +29,14 @@ npm install
 npm start
 ```
 
+## 打包程序
+
+```bash
+cd <项目目录>
+npm install
+npm run build
+``
+
 ### 前置条件
 
 - Node.js 18+
@@ -50,7 +58,7 @@ npm start
 │       ├── app.js               # 前端逻辑 (地图、标记、事件)
 │       └── style.css            # 深色主题样式
 └── data/                        # 运行时数据 (自动创建)
-    ├── ReleasableAircraft.zip   # FAA 数据库副本
+    ├── ReleasableAircraft.zip   # FAA 数据库
     └── opensky-cache.json       # 航班数据缓存
 ```
 
@@ -59,7 +67,7 @@ npm start
 1. 启动后自动加载本地 FAA 数据库和航班缓存
 2. 点击 **刷新航班数据** 从 OpenSky 获取最新全球航班状态
 3. 点击 **下载 FAA 数据库** 从 FAA 官网下载最新注册数据库（约 50-100 MB）
-4. 地图上 **红色圆点** = 已匹配 FAA 注册信息，**蓝色圆点** = 未匹配
+4. 地图上 **红色飞机** = 已匹配 FAA 注册信息，**蓝色飞机** = 未匹配
 5. 点击航班标记查看详情，按 <kbd>Escape</kbd> 取消选中
 6. 右侧竖栏和底部横栏分别显示 FAA 注册信息和航班原始数据
 
