@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https: http:; connect-src https: http:;">
+  <title>数据安全动态采集系统</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Tab Bar -->
+  <div class="tab-bar">
+    <div class="tab active" data-tab="faa-opensky">
+      <span class="tab-icon">&#9992;</span>
+      FAA/OpenSky 分析
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button class="toolbar-btn primary" id="btn-refresh-flights" title="从 OpenSky 获取最新航班数据">
+      <span class="btn-icon">&#8635;</span> 刷新航班数据
+    </button>
+    <button class="toolbar-btn" id="btn-refresh-faa" title="下载最新 FAA 飞机注册数据库">
+      <span class="btn-icon">&#8681;</span> 刷新 FAA 数据库
+    </button>
+    <div class="toolbar-divider"></div>
+    <div class="toolbar-stat">
+      <span class="stat-label">航班总数</span>
+      <span class="stat-value" id="stat-flight-count">0</span>
+    </div>
+    <div class="toolbar-stat matched">
+      <span class="stat-label">FAA 匹配</span>
+      <span class="stat-value" id="stat-faa-matched">0</span>
+    </div>
+    <div class="toolbar-stat">
+      <span class="stat-label">FAA 记录</span>
+      <span class="stat-value" id="stat-faa-records">加载中...</span>
+    </div>
+    <div class="toolbar-stat">
+      <span class="stat-label">缓存时间</span>
+      <span class="stat-value" id="stat-cache-time">--</span>
+    </div>
+    <div class="toolbar-spacer"></div>
+    <div class="toolbar-status" id="status-area">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">就绪</span>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Map Area -->
+    <div class="map-container">
+      <div id="map"></div>
+      <div class="map-legend">
+        <div class="legend-item">
+          <span class="legend-dot matched"></span> 已匹配 FAA
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot unmatched"></span> 未匹配 FAA
+        </div>
+        <div class="legend-item">
+          <span class="legend-dot selected"></span> 已选中
+        </div>
+      </div>
+    </div>
+
+    <!-- FAA Side Panel -->
+    <div class="faa-panel" id="faa-panel">
+      <div class="panel-header">
+        <h3>FAA 注册信息</h3>
+      </div>
+      <div class="panel-body" id="faa-panel-body">
+        <div class="panel-placeholder" id="faa-placeholder">
+          <div class="placeholder-icon">&#128218;</div>
+          <div class="placeholder-text">请选择地图上的航班</div>
+        </div>
+        <div class="faa-info-content" id="faa-info-content" style="display:none;">
+          <div class="faa-field"><span class="faa-label">N-NUMBER</span><span class="faa-value" data-field="N-NUMBER">-</span></div>
+          <div class="faa-field"><span class="faa-label">NAME</span><span class="faa-value" data-field="NAME">-</span></div>
+          <div class="faa-field"><span class="faa-label">CITY</span><span class="faa-value" data-field="CITY">-</span></div>
+          <div class="faa-field"><span class="faa-label">STATE</span><span class="faa-value" data-field="STATE">-</span></div>
+          <div class="faa-field"><span class="faa-label">COUNTRY</span><span class="faa-value" data-field="COUNTRY">-</span></div>
+          <div class="faa-field"><span class="faa-label">YEAR MFR</span><span class="faa-value" data-field="YEAR MFR">-</span></div>
+          <div class="faa-field"><span class="faa-label">MODE S CODE HEX</span><span class="faa-value mono" data-field="MODE S CODE HEX">-</span></div>
+          <div class="faa-field"><span class="faa-label">SERIAL NUMBER</span><span class="faa-value" data-field="SERIAL NUMBER">-</span></div>
+          <div class="faa-field"><span class="faa-label">TYPE AIRCRAFT</span><span class="faa-value" data-field="TYPE AIRCRAFT">-</span></div>
+          <div class="faa-field"><span class="faa-label">TYPE ENGINE</span><span class="faa-value" data-field="TYPE ENGINE">-</span></div>
+          <div class="faa-field"><span class="faa-label">CERTIFICATION</span><span class="faa-value" data-field="CERTIFICATION">-</span></div>
+          <div class="faa-field"><span class="faa-label">STATUS CODE</span><span class="faa-value" data-field="STATUS CODE">-</span></div>
+          <div class="faa-field"><span class="faa-label">EXPIRATION DATE</span><span class="faa-value" data-field="EXPIRATION DATE">-</span></div>
+        </div>
+        <div class="faa-no-match" id="faa-no-match" style="display:none;">
+          <div class="placeholder-icon">&#9888;</div>
+          <div class="placeholder-text">该航班未匹配 FAA 注册信息</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Detail Bar -->
+  <div class="detail-bar" id="detail-bar">
+    <div class="detail-header">
+      <h3>航班详情</h3>
+      <button class="detail-close" id="btn-detail-close" title="取消选中">&#10005;</button>
+    </div>
+    <div class="detail-content" id="detail-content">
+      <div class="detail-placeholder" id="detail-placeholder">
+        点击地图上的航班标记查看详细信息
+      </div>
+      <div class="detail-grid" id="detail-grid" style="display:none;">
+        <div class="detail-item"><span class="detail-label">icao24</span><span class="detail-value mono" data-dfield="icao24">-</span></div>
+        <div class="detail-item"><span class="detail-label">callsign</span><span class="detail-value" data-dfield="callsign">-</span></div>
+        <div class="detail-item"><span class="detail-label">origin_country</span><span class="detail-value" data-dfield="origin_country">-</span></div>
+        <div class="detail-item"><span class="detail-label">time_position</span><span class="detail-value" data-dfield="time_position">-</span></div>
+        <div class="detail-item"><span class="detail-label">last_contact</span><span class="detail-value" data-dfield="last_contact">-</span></div>
+        <div class="detail-item"><span class="detail-label">longitude</span><span class="detail-value mono" data-dfield="longitude">-</span></div>
+        <div class="detail-item"><span class="detail-label">latitude</span><span class="detail-value mono" data-dfield="latitude">-</span></div>
+        <div class="detail-item"><span class="detail-label">baro_altitude</span><span class="detail-value mono" data-dfield="baro_altitude">-</span></div>
+        <div class="detail-item"><span class="detail-label">on_ground</span><span class="detail-value" data-dfield="on_ground">-</span></div>
+        <div class="detail-item"><span class="detail-label">velocity</span><span class="detail-value mono" data-dfield="velocity">-</span></div>
+        <div class="detail-item"><span class="detail-label">true_track</span><span class="detail-value mono" data-dfield="true_track">-</span></div>
+        <div class="detail-item"><span class="detail-label">vertical_rate</span><span class="detail-value mono" data-dfield="vertical_rate">-</span></div>
+        <div class="detail-item"><span class="detail-label">sensors</span><span class="detail-value mono" data-dfield="sensors">-</span></div>
+        <div class="detail-item"><span class="detail-label">geo_altitude</span><span class="detail-value mono" data-dfield="geo_altitude">-</span></div>
+        <div class="detail-item"><span class="detail-label">squawk</span><span class="detail-value mono" data-dfield="squawk">-</span></div>
+        <div class="detail-item"><span class="detail-label">spi</span><span class="detail-value" data-dfield="spi">-</span></div>
+        <div class="detail-item"><span class="detail-label">position_source</span><span class="detail-value" data-dfield="position_source">-</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loading-overlay" style="display:none;">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loading-text">加载中...</div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

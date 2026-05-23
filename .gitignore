@@ -1,0 +1,8 @@
+node_modules/
+dist/
+out/
+*.log
+.env
+*.zip
+data/
+electron应用开发需求.md

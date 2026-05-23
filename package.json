@@ -1,0 +1,17 @@
+{
+  "name": "data-security-dynamic-collection",
+  "version": "1.0.0",
+  "description": "数据安全动态采集系统 - FAA/OpenSky 航班动态分析模块",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}
