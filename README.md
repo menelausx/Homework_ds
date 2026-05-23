@@ -35,7 +35,7 @@ npm start
 cd <项目目录>
 npm install
 npm run build
-``
+```
 
 ### 前置条件
 
