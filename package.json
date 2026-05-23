@@ -4,7 +4,8 @@
   "description": "数据安全动态采集系统 - FAA/OpenSky 航班动态分析模块",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win portable"
   },
   "author": "",
   "license": "ISC",
@@ -12,6 +13,26 @@
     "adm-zip": "^0.5.16"
   },
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.datasecurity.faa-opensky",
+    "productName": "数据安全动态采集系统",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "portable"
+    },
+    "portable": {
+      "artifactName": "数据安全动态采集系统.exe"
+    }
   }
 }

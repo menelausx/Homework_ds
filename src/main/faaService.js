@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
-const { URL } = require('url');
+const { app } = require('electron');
 const AdmZip = require('adm-zip');
 const cacheService = require('./cacheService');
 
@@ -16,13 +16,15 @@ let loaded = false;
 let loadError = null;
 
 function findZipFile() {
-  // Check data directory first
+  // Check writable data directory first (downloaded files go here)
   const dataPath = cacheService.getDataFilePath(FAA_ZIP_FILENAME);
   if (fs.existsSync(dataPath)) return dataPath;
 
-  // Fall back to project root
-  const rootPath = path.join(PROJECT_ROOT, FAA_ZIP_FILENAME);
-  if (fs.existsSync(rootPath)) return rootPath;
+  // In development, also check project root for the initial zip
+  if (!app.isPackaged) {
+    const rootPath = path.join(PROJECT_ROOT, FAA_ZIP_FILENAME);
+    if (fs.existsSync(rootPath)) return rootPath;
+  }
 
   return null;
 }
@@ -122,8 +124,6 @@ function loadFromZip(zipPath) {
 
 function downloadFile(url, destPath) {
   return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http;
-
     const doRequest = (requestUrl) => {
       const urlObj = new URL(requestUrl);
       const options = {
@@ -136,9 +136,9 @@ function downloadFile(url, destPath) {
         timeout: 600000,
       };
 
-      const module = requestUrl.startsWith('https') ? https : http;
+      const mod = requestUrl.startsWith('https') ? https : http;
 
-      const req = module.request(options, (response) => {
+      const req = mod.request(options, (response) => {
         if (
           response.statusCode >= 300 &&
           response.statusCode < 400 &&
@@ -155,6 +155,12 @@ function downloadFile(url, destPath) {
         if (response.statusCode !== 200) {
           reject(new Error('Download failed with status code ' + response.statusCode));
           return;
+        }
+
+        // Ensure parent directory exists before writing
+        const dir = path.dirname(destPath);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
         }
 
         const file = fs.createWriteStream(destPath);
@@ -190,7 +196,7 @@ async function initialize() {
 
     if (!zipPath) {
       loaded = false;
-      loadError = 'FAA 数据库文件未找到，请点击"刷新 FAA 数据库"下载';
+      loadError = 'FAA 数据库文件未找到，请点击"下载 FAA 数据库"下载';
       console.log(loadError);
       return;
     }
@@ -223,7 +229,7 @@ function getAircraftInfo(icao24) {
 
 async function refresh() {
   const zipPath = cacheService.getDataFilePath(FAA_ZIP_FILENAME);
-  console.log('Downloading FAA database from ' + FAA_DOWNLOAD_URL + ' ...');
+  console.log('Downloading FAA database to ' + zipPath + ' ...');
   await downloadFile(FAA_DOWNLOAD_URL, zipPath);
   console.log('Download complete. Parsing MASTER.txt...');
   faaMap = loadFromZip(zipPath);
