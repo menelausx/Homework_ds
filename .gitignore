@@ -5,3 +5,4 @@ out/
 .env
 *.zip
 data/
+flight.svg

@@ -1,5 +1,74 @@
+// ==================== SVG Airplane Icon ====================
+// Source: src/renderer/assets/flight.svg — airplane pointing north (0° = true_track 0°)
+const AIRPLANE_PATH = 'M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z';
+
+const MATCHED_COLOR = '#e06c75';
+const UNMATCHED_COLOR = '#58a6ff';
+const SELECTED_COLOR = '#ffffff';
+
+function buildAirplaneSVG(fillColor, rotation, glow) {
+  const glowFilter = glow ? 'drop-shadow(0 0 6px rgba(57,197,207,0.9))' : '';
+  const baseFilter = 'drop-shadow(0 1.5px 2.5px rgba(0,0,0,0.45))';
+  const filter = glow ? glowFilter + ' ' + baseFilter : baseFilter;
+
+  return (
+    '<svg xmlns="http://www.w3.org/2000/svg" height="28px" viewBox="0 -960 960 960" width="28px"' +
+    ' fill="' + fillColor + '" stroke="rgba(0,0,0,0.3)" stroke-width="18"' +
+    ' style="display:block;transform:rotate(' + rotation + 'deg);transform-origin:center;filter:' + filter + ';">' +
+    '<path d="' + AIRPLANE_PATH + '"/></svg>'
+  );
+}
+
+function createAirplaneIcon(icao24, trueTrack, isSelected) {
+  const faaInfo = state.faaCache.get(icao24);
+  let fillColor;
+  if (isSelected) {
+    fillColor = SELECTED_COLOR;
+  } else if (faaInfo) {
+    fillColor = MATCHED_COLOR;
+  } else {
+    fillColor = UNMATCHED_COLOR;
+  }
+
+  return L.divIcon({
+    html: buildAirplaneSVG(fillColor, trueTrack || 0, isSelected),
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    className: 'airplane-marker',
+  });
+}
+
+// ==================== DOM-based marker style helpers ====================
+function setMarkerDOMColor(marker, fillColor, glow) {
+  var el = marker.getElement();
+  if (!el) return;
+  var svg = el.querySelector('svg');
+  if (!svg) return;
+  svg.setAttribute('fill', fillColor);
+  var glowFilter = glow ? 'drop-shadow(0 0 6px rgba(57,197,207,0.9))' : '';
+  var baseFilter = 'drop-shadow(0 1.5px 2.5px rgba(0,0,0,0.45))';
+  svg.style.filter = glow ? glowFilter + ' ' + baseFilter : baseFilter;
+}
+
+function applyMarkerStyleFromCache(marker) {
+  var icao24 = marker.icao24;
+  var faaInfo = state.faaCache.get(icao24);
+  var fillColor = faaInfo ? MATCHED_COLOR : UNMATCHED_COLOR;
+  setMarkerDOMColor(marker, fillColor, false);
+}
+
+function setMarkerSelectedDOM(marker, isSelected) {
+  if (isSelected) {
+    setMarkerDOMColor(marker, SELECTED_COLOR, true);
+    marker.setZIndexOffset(1000);
+  } else {
+    applyMarkerStyleFromCache(marker);
+    marker.setZIndexOffset(0);
+  }
+}
+
 // ==================== State ====================
-const state = {
+var state = {
   flightData: { time: 0, cacheTime: null, states: [] },
   faaStats: { recordCount: 0, loaded: false, error: null },
   faaCache: new Map(),
@@ -10,7 +79,7 @@ const state = {
 };
 
 // ==================== Map Setup ====================
-const map = L.map('map', {
+var map = L.map('map', {
   center: [39.5, -98.0],
   zoom: 4,
   minZoom: 2,
@@ -28,24 +97,24 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
 state.flightLayer = L.layerGroup().addTo(map);
 
 // ==================== DOM References ====================
-const $ = (sel) => document.querySelector(sel);
+var $ = function (sel) { return document.querySelector(sel); };
 
-const btnRefreshFlights = $('#btn-refresh-flights');
-const btnRefreshFaa = $('#btn-refresh-faa');
-const btnDetailClose = $('#btn-detail-close');
-const statFlightCount = $('#stat-flight-count');
-const statFaaMatched = $('#stat-faa-matched');
-const statFaaRecords = $('#stat-faa-records');
-const statCacheTime = $('#stat-cache-time');
-const statusDot = $('#status-dot');
-const statusText = $('#status-text');
-const loadingOverlay = $('#loading-overlay');
-const loadingText = $('#loading-text');
-const faaPlaceholder = $('#faa-placeholder');
-const faaInfoContent = $('#faa-info-content');
-const faaNoMatch = $('#faa-no-match');
-const detailPlaceholder = $('#detail-placeholder');
-const detailGrid = $('#detail-grid');
+var btnRefreshFlights = $('#btn-refresh-flights');
+var btnRefreshFaa = $('#btn-refresh-faa');
+var btnDetailClose = $('#btn-detail-close');
+var statFlightCount = $('#stat-flight-count');
+var statFaaMatched = $('#stat-faa-matched');
+var statFaaRecords = $('#stat-faa-records');
+var statCacheTime = $('#stat-cache-time');
+var statusDot = $('#status-dot');
+var statusText = $('#status-text');
+var loadingOverlay = $('#loading-overlay');
+var loadingText = $('#loading-text');
+var faaPlaceholder = $('#faa-placeholder');
+var faaInfoContent = $('#faa-info-content');
+var faaNoMatch = $('#faa-no-match');
+var detailPlaceholder = $('#detail-placeholder');
+var detailGrid = $('#detail-grid');
 
 // ==================== Utility ====================
 function setStatus(st, text) {
@@ -67,7 +136,7 @@ function hideLoading() {
 function formatTime(isoString) {
   if (!isoString) return '--';
   try {
-    const d = new Date(isoString);
+    var d = new Date(isoString);
     return d.toLocaleString('zh-CN', {
       month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -80,7 +149,7 @@ function formatTime(isoString) {
 function formatUnixTimestamp(ts) {
   if (!ts || ts === 0) return '--';
   try {
-    const d = new Date(ts * 1000);
+    var d = new Date(ts * 1000);
     return d.toLocaleString('zh-CN', {
       month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -93,52 +162,22 @@ function formatUnixTimestamp(ts) {
 function showEl(el) { el.style.display = ''; }
 function hideEl(el) { el.style.display = 'none'; }
 
-// ==================== Marker Helpers ====================
-const MARKER_STYLE = {
-  matched: {
-    radius: 6,
-    color: '#c0392b',
-    fillColor: '#e06c75',
-    fillOpacity: 0.85,
-    weight: 1.5,
-  },
-  unmatched: {
-    radius: 5,
-    color: '#1a5276',
-    fillColor: '#58a6ff',
-    fillOpacity: 0.7,
-    weight: 1,
-  },
-  selected: {
-    radius: 9,
-    color: '#39c5cf',
-    fillColor: '#ffffff',
-    fillOpacity: 0.95,
-    weight: 3,
-  },
-};
-
-function getMarkerStyle(icao24, isSelected) {
-  if (isSelected) return MARKER_STYLE.selected;
-  const faaInfo = state.faaCache.get(icao24);
-  return faaInfo ? MARKER_STYLE.matched : MARKER_STYLE.unmatched;
-}
-
+// ==================== Marker Creation ====================
 function createMarker(flight, lonOffset) {
-  const lon = flight.longitude + (lonOffset || 0);
-  const marker = L.circleMarker(
-    [flight.latitude, lon],
-    getMarkerStyle(flight.icao24, false)
-  );
+  var lon = flight.longitude + (lonOffset || 0);
+  var icon = createAirplaneIcon(flight.icao24, flight.true_track, false);
+  var marker = L.marker([flight.latitude, lon], { icon: icon });
 
   marker.icao24 = flight.icao24;
 
-  marker.on('click', () => selectFlight(flight.icao24));
+  marker.on('click', function () {
+    selectFlight(flight.icao24);
+  });
 
-  const label = flight.callsign || flight.icao24;
+  var label = flight.callsign || flight.icao24;
   marker.bindTooltip(label, {
     direction: 'top',
-    offset: [0, -8],
+    offset: [0, -18],
     opacity: 0.9,
     className: 'marker-tooltip',
   });
@@ -147,12 +186,12 @@ function createMarker(flight, lonOffset) {
 }
 
 // ==================== Viewport-Driven Marker Rendering ====================
-let updatePending = false;
+var updatePending = false;
 
 function updateVisibleMarkers() {
   if (updatePending) return;
   updatePending = true;
-  requestAnimationFrame(() => {
+  requestAnimationFrame(function () {
     updatePending = false;
     _doUpdateVisibleMarkers();
   });
@@ -161,41 +200,38 @@ function updateVisibleMarkers() {
 function _doUpdateVisibleMarkers() {
   if (!state.flightData.states.length) return;
 
-  const bounds = map.getBounds();
-  const west = bounds.getWest();
-  const east = bounds.getEast();
-  const south = bounds.getSouth();
-  const north = bounds.getNorth();
+  var bounds = map.getBounds();
+  var west = bounds.getWest();
+  var east = bounds.getEast();
+  var south = bounds.getSouth();
+  var north = bounds.getNorth();
 
-  // Padding: 50% viewport width on each side for smooth panning
-  const lngPad = (east - west) * 0.5;
-  const latPad = (north - south) * 0.3;
-  const visWest = west - lngPad;
-  const visEast = east + lngPad;
-  const visSouth = south - latPad;
-  const visNorth = north + latPad;
+  var lngPad = (east - west) * 0.5;
+  var latPad = (north - south) * 0.3;
+  var visWest = west - lngPad;
+  var visEast = east + lngPad;
+  var visSouth = south - latPad;
+  var visNorth = north + latPad;
 
   state.flightLayer.clearLayers();
-  const newMarkers = {};
-  const prevSelected = state.selectedIcao24;
-  let foundSelected = false;
+  var newMarkers = {};
+  var prevSelected = state.selectedIcao24;
+  var foundSelected = false;
 
-  for (const flight of state.flightData.states) {
-    const lat = flight.latitude;
-    const lon = flight.longitude;
+  for (var i = 0; i < state.flightData.states.length; i++) {
+    var flight = state.flightData.states[i];
+    var lat = flight.latitude;
+    var lon = flight.longitude;
     if (lat == null || lon == null) continue;
     if (lat < visSouth || lat > visNorth) continue;
 
-    // Compute which world copies of this flight fall within the visible longitude range
-    // World n places the flight at lon + n*360
-    const nMin = Math.ceil((visWest - lon) / 360);
-    const nMax = Math.floor((visEast - lon) / 360);
-
+    var nMin = Math.ceil((visWest - lon) / 360);
+    var nMax = Math.floor((visEast - lon) / 360);
     if (nMin > nMax) continue;
 
-    const copies = [];
-    for (let n = nMin; n <= nMax; n++) {
-      const marker = createMarker(flight, n * 360);
+    var copies = [];
+    for (var n = nMin; n <= nMax; n++) {
+      var marker = createMarker(flight, n * 360);
       state.flightLayer.addLayer(marker);
       copies.push(marker);
     }
@@ -205,9 +241,8 @@ function _doUpdateVisibleMarkers() {
     if (flight.icao24 === prevSelected) {
       foundSelected = true;
       state.selectedMarkerCopies = copies;
-      for (const m of copies) {
-        m.setStyle(MARKER_STYLE.selected);
-        m.bringToFront();
+      for (var k = 0; k < copies.length; k++) {
+        setMarkerSelectedDOM(copies[k], true);
       }
     }
   }
@@ -221,44 +256,44 @@ function _doUpdateVisibleMarkers() {
 }
 
 // ==================== FAA Preload (batch, async, non-blocking) ====================
-let faaPreloadRunning = false;
+var faaPreloadRunning = false;
 
 async function preloadFaaCache() {
   if (faaPreloadRunning) return;
   faaPreloadRunning = true;
 
   try {
-    const uncached = state.flightData.states
-      .map(f => f.icao24)
-      .filter(id => !state.faaCache.has(id));
+    var uncached = [];
+    for (var i = 0; i < state.flightData.states.length; i++) {
+      var id = state.flightData.states[i].icao24;
+      if (!state.faaCache.has(id)) {
+        uncached.push(id);
+      }
+    }
 
-    const BATCH = 2000;
-    for (let i = 0; i < uncached.length; i += BATCH) {
-      const batch = uncached.slice(i, i + BATCH);
+    var BATCH = 2000;
+    for (var i = 0; i < uncached.length; i += BATCH) {
+      var batch = uncached.slice(i, i + BATCH);
+      var results = await window.electronAPI.getFaaInfoBulk(batch);
 
-      const results = await window.electronAPI.getFaaInfoBulk(batch);
-
-      for (const icao24 of batch) {
-        if (results[icao24]) {
-          state.faaCache.set(icao24, results[icao24]);
-        } else {
-          state.faaCache.set(icao24, null);
-        }
+      for (var j = 0; j < batch.length; j++) {
+        var icao24 = batch[j];
+        state.faaCache.set(icao24, results[icao24] || null);
       }
 
-      // Update visible marker styles in-place (no flicker)
-      for (const icao24 of batch) {
-        const copies = state.markers[icao24];
-        if (copies && state.selectedIcao24 !== icao24) {
-          const style = state.faaCache.get(icao24) ? MARKER_STYLE.matched : MARKER_STYLE.unmatched;
-          for (const m of copies) {
-            m.setStyle(style);
+      // Update visible marker colors in-place
+      for (var k = 0; k < batch.length; k++) {
+        var icao = batch[k];
+        var copies = state.markers[icao];
+        if (copies && state.selectedIcao24 !== icao) {
+          for (var m = 0; m < copies.length; m++) {
+            applyMarkerStyleFromCache(copies[m]);
           }
         }
       }
 
       updateStats();
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(function (resolve) { return setTimeout(resolve, 50); });
     }
   } catch (err) {
     console.error('FAA preload error:', err);
@@ -270,32 +305,40 @@ async function preloadFaaCache() {
 function updateStats() {
   statFlightCount.textContent = state.flightData.states.length;
   statCacheTime.textContent = formatTime(state.flightData.cacheTime);
-  let matched = 0;
-  for (const info of state.faaCache.values()) {
+  var matched = 0;
+  var cache = state.faaCache;
+  // Iterate values manually to avoid iterator overhead
+  cache.forEach(function (info) {
     if (info) matched++;
-  }
+  });
   statFaaMatched.textContent = matched;
 }
 
 // ==================== Selection ====================
 async function selectFlight(icao24) {
+  // Deselect previous
   if (state.selectedMarkerCopies) {
-    for (const m of state.selectedMarkerCopies) {
-      m.setStyle(getMarkerStyle(state.selectedIcao24, false));
+    for (var i = 0; i < state.selectedMarkerCopies.length; i++) {
+      setMarkerSelectedDOM(state.selectedMarkerCopies[i], false);
     }
   }
 
-  const copies = state.markers[icao24];
+  var copies = state.markers[icao24];
   if (!copies || copies.length === 0) return;
 
   state.selectedIcao24 = icao24;
   state.selectedMarkerCopies = copies;
-  for (const m of copies) {
-    m.setStyle(MARKER_STYLE.selected);
-    m.bringToFront();
+  for (var j = 0; j < copies.length; j++) {
+    setMarkerSelectedDOM(copies[j], true);
   }
 
-  const flight = state.flightData.states.find((f) => f.icao24 === icao24);
+  var flight;
+  for (var k = 0; k < state.flightData.states.length; k++) {
+    if (state.flightData.states[k].icao24 === icao24) {
+      flight = state.flightData.states[k];
+      break;
+    }
+  }
   if (flight) {
     showFlightDetail(flight);
   }
@@ -305,8 +348,8 @@ async function selectFlight(icao24) {
 
 function deselectFlight() {
   if (state.selectedMarkerCopies) {
-    for (const m of state.selectedMarkerCopies) {
-      m.setStyle(getMarkerStyle(state.selectedIcao24, false));
+    for (var i = 0; i < state.selectedMarkerCopies.length; i++) {
+      setMarkerSelectedDOM(state.selectedMarkerCopies[i], false);
     }
     state.selectedMarkerCopies = null;
     state.selectedIcao24 = null;
@@ -320,22 +363,22 @@ function showFlightDetail(flight) {
   hideEl(detailPlaceholder);
   showEl(detailGrid);
 
-  const fields = [
+  var fields = [
     'icao24', 'callsign', 'origin_country', 'time_position', 'last_contact',
     'longitude', 'latitude', 'baro_altitude', 'on_ground', 'velocity',
     'true_track', 'vertical_rate', 'sensors', 'geo_altitude', 'squawk',
     'spi', 'position_source',
   ];
 
-  for (const field of fields) {
-    const el = detailGrid.querySelector(`[data-dfield="${field}"]`);
+  for (var i = 0; i < fields.length; i++) {
+    var el = detailGrid.querySelector('[data-dfield="' + fields[i] + '"]');
     if (!el) continue;
-    let val = flight[field];
+    var val = flight[fields[i]];
     if (val == null) val = '-';
-    if (field === 'time_position' || field === 'last_contact') {
+    if (fields[i] === 'time_position' || fields[i] === 'last_contact') {
       val = formatUnixTimestamp(val);
     }
-    if (field === 'on_ground') {
+    if (fields[i] === 'on_ground') {
       val = val === true ? 'Yes' : val === false ? 'No' : String(val);
     }
     el.textContent = String(val);
@@ -349,7 +392,7 @@ function hideFlightDetail() {
 
 // ==================== FAA Panel ====================
 async function showFaaInfo(icao24) {
-  let faaInfo = state.faaCache.get(icao24);
+  var faaInfo = state.faaCache.get(icao24);
 
   if (faaInfo === undefined) {
     faaInfo = await window.electronAPI.getFaaInfo(icao24);
@@ -361,16 +404,16 @@ async function showFaaInfo(icao24) {
     hideEl(faaNoMatch);
     showEl(faaInfoContent);
 
-    const fields = [
+    var fields = [
       'N-NUMBER', 'NAME', 'CITY', 'STATE', 'COUNTRY', 'YEAR MFR',
       'MODE S CODE HEX', 'SERIAL NUMBER', 'TYPE AIRCRAFT', 'TYPE ENGINE',
       'CERTIFICATION', 'STATUS CODE', 'EXPIRATION DATE',
     ];
 
-    for (const field of fields) {
-      const el = faaInfoContent.querySelector(`[data-field="${field}"]`);
+    for (var i = 0; i < fields.length; i++) {
+      var el = faaInfoContent.querySelector('[data-field="' + fields[i] + '"]');
       if (!el) continue;
-      el.textContent = faaInfo[field] || '-';
+      el.textContent = faaInfo[fields[i]] || '-';
     }
   } else {
     hideEl(faaPlaceholder);
@@ -423,7 +466,7 @@ async function refreshFlights() {
   btnRefreshFlights.disabled = true;
 
   try {
-    const result = await window.electronAPI.refreshFlights();
+    var result = await window.electronAPI.refreshFlights();
     if (result.success) {
       state.flightData = await window.electronAPI.getFlightData();
       state.faaCache.clear();
@@ -448,7 +491,7 @@ async function refreshFaaDatabase() {
   showLoading('正在下载 FAA 数据库...\n文件较大，可能需要几分钟');
 
   try {
-    const result = await window.electronAPI.refreshFaa();
+    var result = await window.electronAPI.refreshFaa();
     if (result.success) {
       state.faaStats = await window.electronAPI.getFaaStats();
       updateFaaStatsDisplay();
@@ -478,20 +521,17 @@ btnRefreshFlights.addEventListener('click', refreshFlights);
 btnRefreshFaa.addEventListener('click', refreshFaaDatabase);
 btnDetailClose.addEventListener('click', deselectFlight);
 
-// Viewport-driven reactive rendering
 map.on('moveend', updateVisibleMarkers);
 map.on('zoomend', updateVisibleMarkers);
 
-// Map click on empty space deselects
-map.on('click', (e) => {
+map.on('click', function (e) {
   if (e.originalEvent.target === map.getContainer() ||
       e.originalEvent.target.classList.contains('leaflet-container')) {
     deselectFlight();
   }
 });
 
-// FAA ready event from main process
-window.electronAPI.onFaaReady((stats) => {
+window.electronAPI.onFaaReady(function (stats) {
   state.faaStats = stats;
   updateFaaStatsDisplay();
 
@@ -502,14 +542,13 @@ window.electronAPI.onFaaReady((stats) => {
   setStatus('ok', 'FAA 数据库加载完成 (' + stats.recordCount.toLocaleString() + ' 条记录)');
 });
 
-window.electronAPI.onFaaError((error) => {
+window.electronAPI.onFaaError(function (error) {
   state.faaStats.error = error;
   updateFaaStatsDisplay();
   setStatus('error', 'FAA 数据库: ' + error);
 });
 
-// Keyboard shortcut: Escape to deselect
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape') {
     deselectFlight();
   }
