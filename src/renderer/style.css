@@ -250,26 +250,15 @@ body {
   color: var(--text-secondary);
 }
 
-.legend-airplane {
-  width: 16px;
-  height: 16px;
+.legend-icon {
+  width: 15px;
+  height: 15px;
   flex-shrink: 0;
-  clip-path: path('M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z');
-  transform: scale(0.0167);
-  transform-origin: 0 0;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));
 }
 
-.legend-airplane.matched {
-  background: var(--accent-red);
-}
-
-.legend-airplane.unmatched {
-  background: var(--accent-blue);
-}
-
-.legend-airplane.selected {
-  background: #ffffff;
-  box-shadow: 0 0 6px rgba(57, 197, 207, 0.8);
+.legend-icon.selected {
+  filter: drop-shadow(0 0 5px rgba(57,197,207,0.8)) drop-shadow(0 1px 2px rgba(0,0,0,0.4));
 }
 
 /* ========== FAA Side Panel ========== */
