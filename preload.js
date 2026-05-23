@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // FAA
   getFaaStats: () => ipcRenderer.invoke('faa:get-stats'),
   getFaaInfo: (icao24) => ipcRenderer.invoke('faa:get-info', icao24),
+  getFaaInfoBulk: (icao24List) => ipcRenderer.invoke('faa:get-info-bulk', icao24List),
   refreshFaa: () => ipcRenderer.invoke('faa:refresh'),
 
   // OpenSky

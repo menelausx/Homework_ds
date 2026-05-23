@@ -38,6 +38,15 @@ function setupIpcHandlers() {
     return faaService.getAircraftInfo(icao24);
   });
 
+  ipcMain.handle('faa:get-info-bulk', async (_event, icao24List) => {
+    const result = {};
+    for (const icao24 of icao24List) {
+      const info = faaService.getAircraftInfo(icao24);
+      if (info) result[icao24] = info;
+    }
+    return result;
+  });
+
   ipcMain.handle('faa:refresh', async () => {
     try {
       const result = await faaService.refresh();
