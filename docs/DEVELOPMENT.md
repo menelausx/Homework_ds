@@ -20,15 +20,15 @@ Preload
           v
 Main Process
   main.js
-  src/main/userService.js
-  src/main/faaService.js
-  src/main/openskyService.js
-  src/main/cacheService.js
+  src/main/userService.js          ← 用户/会话管理
+  src/main/cacheService.js         ← 文件缓存读写
   src/main/databaseService.js      ← 数据表数据库连接
   src/main/dataSourceService.js    ← 数据源注册与调度
-  src/main/openskyDataSource.js    ← OpenSky 数据源
-  src/main/faaDataSource.js        ← FAA 数据源
+  src/main/openskyDataSource.js    ← OpenSky 数据源（下载/解析/入库）
+  src/main/faaDataSource.js        ← FAA 数据源（下载/解析/入库）
   src/main/analysisService.js      ← SQLite 分析查询服务
+  src/main/faaService.js           ← FAA 解析工具（被 faaDataSource 复用）
+  src/main/openskyService.js       ← OpenSky API 工具（被 openskyDataSource 复用）
 ```
 
 安全设置：
@@ -187,8 +187,7 @@ Analysis（FAA/OpenSky 分析页面，SQLite 只读查询）：
 | `analysis:getFaaInfo` | `icao24` | FAA 记录（CSV 字段名格式）或 `null` |
 | `analysis:getFaaInfoBulk` | `icao24List` | `{ [icao24]: record }` |
 
-> **注意**：分析页面已完全改为 SQLite 驱动，不再直接访问外部 API 或文件。
-> 以下旧 IPC 通道仍保留但分析页面不再使用：`faa:get-stats`、`faa:get-info`、`faa:get-info-bulk`、`faa:refresh`、`faa:ready`、`faa:error`、`opensky:get-flights`、`opensky:refresh`。
+> **所有分析数据来自 SQLite，无网络请求、无文件回退。**
 
 Data Sources（数据采集入库）：
 
@@ -250,16 +249,6 @@ OpenSky: opensky_states.icao24
 - `analysisService.getFaaInfo(icao24)` — 单条查询。
 - `analysisService.getFaaInfoBulk(icao24List)` — 批量查询，SQL `IN` 子句分块（500/批）。
 - 统计数据中的 FAA 匹配数通过 `INNER JOIN` 在数据库层完成。
-
-### 旧版数据流（已废弃）
-
-以下流程不再被分析页面使用：
-
-- ~~OpenSky API → opensky-cache.json → 内存~~
-- ~~ReleasableAircraft.zip → MASTER.txt → 内存 Map~~
-- ~~后台 FAA 初始化（`faaService.initialize()`）~~
-
-旧服务模块（`faaService.js`、`openskyService.js`）仍保留用于数据采集入库页面的解析逻辑。
 
 ## 数据采集入库
 
@@ -544,11 +533,11 @@ login.js
 - 单独点击**入库**执行解析 + 写入数据库两步操作。
 - 下次软件启动后，数据采集入库页面显示的是上次操作的状态（记录数、各步骤时间等）。
 
-### OpenSky 数据源名称与分析页面的关系
+### OpenSky 与 FAA 在分析页面和采集页面的关系
 
-"数据采集入库"页面的 OpenSky 数据源（`opensky_states`）和"FAA/OpenSky 分析"页面的"刷新航班数据"按钮使用**不同的数据存储**：
+两个页面共享同一数据源（SQLite），分工明确：
 
-- 分析页面：数据存于 `data/opensky-cache.json`，在内存中渲染地图。
-- 采集入库页面：数据写入 SQLite `opensky_states` 表，可持久查询。
+- **数据采集入库页面**：负责下载原始数据、解析、写入 SQLite（`opensky_states` / `faa_aircraft` 表）。
+- **FAA/OpenSky 分析页面**：只读 SQLite，地图展示、FAA 匹配、详情查询。
 
-两者互不干扰。
+分析页面不再直接访问文件或 API。所有数据必须先在采集页面入库，才能在分析页面查看。

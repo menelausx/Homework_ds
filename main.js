@@ -1,7 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
-const faaService = require('./src/main/faaService');
-const openskyService = require('./src/main/openskyService');
 const userService = require('./src/main/userService');
 const dataSourceService = require('./src/main/dataSourceService');
 const databaseService = require('./src/main/databaseService');
@@ -142,54 +140,6 @@ function setupUsersIpcHandlers() {
       return result;
     } catch (error) {
       console.error('[users] ResetPassword error:', error.message);
-      return { success: false, error: error.message };
-    }
-  });
-}
-
-// ── FAA handlers ────────────────────────────────────────────────────────────
-
-function setupFaaIpcHandlers() {
-  ipcMain.handle('faa:get-stats', async () => {
-    return faaService.getStats();
-  });
-
-  ipcMain.handle('faa:get-info', async (_event, icao24) => {
-    if (!icao24) return null;
-    return faaService.getAircraftInfo(icao24);
-  });
-
-  ipcMain.handle('faa:get-info-bulk', async (_event, icao24List) => {
-    const result = {};
-    for (const icao24 of icao24List) {
-      const info = faaService.getAircraftInfo(icao24);
-      if (info) result[icao24] = info;
-    }
-    return result;
-  });
-
-  ipcMain.handle('faa:refresh', async () => {
-    try {
-      const result = await faaService.refresh();
-      return { success: true, recordCount: result.recordCount };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-}
-
-// ── OpenSky handlers ────────────────────────────────────────────────────────
-
-function setupOpenskyIpcHandlers() {
-  ipcMain.handle('opensky:get-flights', async () => {
-    return openskyService.getCachedFlights();
-  });
-
-  ipcMain.handle('opensky:refresh', async () => {
-    try {
-      const result = await openskyService.refresh();
-      return { success: true, flightCount: result.states.length, cacheTime: result.cacheTime };
-    } catch (error) {
       return { success: false, error: error.message };
     }
   });
@@ -347,8 +297,6 @@ app.whenReady().then(() => {
   // 3. Register all IPC handlers
   setupAuthIpcHandlers();
   setupUsersIpcHandlers();
-  setupFaaIpcHandlers();
-  setupOpenskyIpcHandlers();
   setupDataSourceIpcHandlers();
   setupShellIpcHandlers();
   setupAnalysisIpcHandlers();

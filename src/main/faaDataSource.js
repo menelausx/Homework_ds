@@ -1,6 +1,4 @@
 const fs = require('fs');
-const path = require('path');
-const { app } = require('electron');
 const faaService = require('./faaService');
 const cacheService = require('./cacheService');
 const databaseService = require('./databaseService');
@@ -27,24 +25,7 @@ async function download() {
 async function parse() {
   const zipPath = cacheService.getDataFilePath(ZIP_FILENAME);
   if (!fs.existsSync(zipPath)) {
-    // Fallback to project root if available
-    let rootPath;
-    if (!app.isPackaged) {
-      rootPath = path.join(__dirname, '..', '..', ZIP_FILENAME);
-      if (!fs.existsSync(rootPath)) {
-        rootPath = null;
-      }
-    }
-    if (!rootPath) {
-      throw new Error('FAA 数据库文件未找到，请先下载。');
-    }
-    console.log('[FAADataSource] Using fallback zip at project root: ' + rootPath);
-    const faaMap = faaService.loadFromZip(rootPath);
-    const records = [];
-    faaMap.forEach(function (record, key) {
-      records.push(record);
-    });
-    return { success: true, recordCount: records.length, data: records };
+    throw new Error('FAA 数据库文件未找到，请先点击"下载"获取数据。');
   }
 
   const faaMap = faaService.loadFromZip(zipPath);
