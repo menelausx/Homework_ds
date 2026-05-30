@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const faaService = require('./src/main/faaService');
 const openskyService = require('./src/main/openskyService');
@@ -260,6 +260,27 @@ function setupDataSourceIpcHandlers() {
   });
 }
 
+// ── Shell IPC handlers ──────────────────────────────────────────────────────
+
+function setupShellIpcHandlers() {
+  ipcMain.handle('shell:openExternal', async (_event, url) => {
+    try {
+      if (!url || typeof url !== 'string') {
+        return { success: false, error: 'Invalid URL' };
+      }
+      // Only allow http/https URLs
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        return { success: false, error: 'Only http/https URLs are allowed' };
+      }
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error) {
+      console.error('[shell] openExternal error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+}
+
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -279,6 +300,7 @@ app.whenReady().then(() => {
   setupFaaIpcHandlers();
   setupOpenskyIpcHandlers();
   setupDataSourceIpcHandlers();
+  setupShellIpcHandlers();
 
   // 4. Load FAA database in background, notify renderer when done
   faaService

@@ -1170,10 +1170,12 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .import-card-url:hover {
   text-decoration: underline;
+  color: #79c0ff;
 }
 
 .import-card-status {

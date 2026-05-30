@@ -110,7 +110,7 @@ var ImportModule = (function () {
       // URL
       html += '<div class="import-card-field">';
       html += '<span class="import-card-label">数据来源</span>';
-      html += '<a class="import-card-url" href="#" title="' + escapeHtml(s.url) + '">' + escapeHtml(s.url) + '</a>';
+      html += '<a class="import-card-url" href="#" data-action="openUrl" data-url="' + escapeHtml(s.url) + '" title="在浏览器中打开">' + escapeHtml(s.url) + '</a>';
       html += '</div>';
 
       // Status
@@ -301,6 +301,17 @@ var ImportModule = (function () {
 
   if (cardGrid) {
     cardGrid.addEventListener('click', function (e) {
+      // Handle URL clicks — open in system browser
+      var urlLink = e.target.closest('[data-action="openUrl"]');
+      if (urlLink) {
+        e.preventDefault();
+        var url = urlLink.getAttribute('data-url');
+        if (url && window.electronAPI && window.electronAPI.openExternal) {
+          window.electronAPI.openExternal(url);
+        }
+        return;
+      }
+
       var btn = e.target.closest('.import-btn');
       if (!btn || btn.disabled) return;
 

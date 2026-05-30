@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   importDataSource: (sourceId) => ipcRenderer.invoke('dataSources:import', sourceId),
   updateAllDataSource: (sourceId) => ipcRenderer.invoke('dataSources:updateAll', sourceId),
 
+  // ── Shell ──────────────────────────────────────────────────────────────────
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
+
   // ── Event listeners from main process ─────────────────────────────────────
   onFaaReady: (callback) => {
     ipcRenderer.on('faa:ready', (_event, stats) => callback(stats));
