@@ -101,9 +101,9 @@ function setupUsersIpcHandlers() {
     }
   });
 
-  ipcMain.handle('users:update', async (_event, id, username) => {
+  ipcMain.handle('users:update', async (_event, id, username, password) => {
     try {
-      const result = userService.updateUser(id, username);
+      const result = userService.updateUser(id, username, password);
       if (result.success) {
         console.log('[users] Updated user id=' + id + ' to username=' + username);
       }

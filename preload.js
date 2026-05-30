@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── User Management ───────────────────────────────────────────────────────
   listUsers: (opts) => ipcRenderer.invoke('users:list', opts),
   createUser: (username, password) => ipcRenderer.invoke('users:create', username, password),
-  updateUser: (id, username) => ipcRenderer.invoke('users:update', id, username),
+  updateUser: (id, username, password) => ipcRenderer.invoke('users:update', id, username, password),
   deleteUser: (id) => ipcRenderer.invoke('users:delete', id),
   resetUserPassword: (id, newPassword) => ipcRenderer.invoke('users:resetPassword', id, newPassword),
 

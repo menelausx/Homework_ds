@@ -179,7 +179,7 @@ function createUser(username, password) {
   }
 }
 
-function updateUser(id, username) {
+function updateUser(id, username, newPassword) {
   const userId = Number(id);
   const trimmedUsername = String(username || '').trim();
   if (!trimmedUsername) {
@@ -193,7 +193,16 @@ function updateUser(id, username) {
   }
 
   try {
-    database.prepare('UPDATE users SET username = ? WHERE id = ?').run(trimmedUsername, userId);
+    if (newPassword) {
+      const update = database.transaction(() => {
+        database
+          .prepare('UPDATE users SET username = ?, password_hash = ? WHERE id = ?')
+          .run(trimmedUsername, hashPassword(newPassword), userId);
+      });
+      update();
+    } else {
+      database.prepare('UPDATE users SET username = ? WHERE id = ?').run(trimmedUsername, userId);
+    }
     return { success: true, user: getUserById(userId) };
   } catch (err) {
     if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {

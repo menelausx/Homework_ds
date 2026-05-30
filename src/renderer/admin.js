@@ -21,7 +21,7 @@ var AdminModule = (function () {
   var modalUserTitle = document.getElementById('modal-user-title');
   var modalUserId = document.getElementById('modal-user-id');
   var modalUsername = document.getElementById('modal-username');
-  var modalPassword = document.getElementById('modal-password');
+  var modalPassword = document.getElementById('modal-user-password');
   var modalPasswordField = document.getElementById('modal-password-field');
   var modalUserStatus = document.getElementById('modal-user-status');
   var btnModalUserClose = document.getElementById('btn-modal-user-close');
@@ -187,6 +187,7 @@ var AdminModule = (function () {
     if (modalPassword) modalPassword.value = '';
     if (modalUserTitle) modalUserTitle.textContent = '新建用户';
     if (modalPasswordField) modalPasswordField.style.display = '';
+    if (modalPassword) modalPassword.placeholder = '请输入密码';
     clearUserModalStatus();
     if (modalUser) modalUser.style.display = '';
     if (modalUsername) modalUsername.focus();
@@ -197,7 +198,8 @@ var AdminModule = (function () {
     if (modalUsername) modalUsername.value = username;
     if (modalPassword) modalPassword.value = '';
     if (modalUserTitle) modalUserTitle.textContent = '编辑用户';
-    if (modalPasswordField) modalPasswordField.style.display = 'none';
+    if (modalPasswordField) modalPasswordField.style.display = '';
+    if (modalPassword) modalPassword.placeholder = '留空则不修改密码';
     clearUserModalStatus();
     if (modalUser) modalUser.style.display = '';
     if (modalUsername) modalUsername.focus();
@@ -221,12 +223,8 @@ var AdminModule = (function () {
 
     if (id) {
       // Edit existing user
-      if (password) {
-        setUserModalStatus('编辑模式下不支持修改密码，请使用"重置密码"功能', 'error');
-        return;
-      }
       try {
-        var result = await window.electronAPI.updateUser(parseInt(id, 10), username);
+        var result = await window.electronAPI.updateUser(parseInt(id, 10), username, password || null);
         if (result.success) {
           closeUserModal();
           loadUsers();
