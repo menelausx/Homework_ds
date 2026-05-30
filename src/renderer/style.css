@@ -1019,3 +1019,309 @@ body {
 .modal-status.success {
   color: var(--accent-green);
 }
+
+/* ========== Data Import Module ========== */
+.import-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+.import-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.import-toolbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.import-page-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  letter-spacing: 1px;
+  margin: 0;
+}
+
+.import-page-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.import-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Card Grid ─────────────────────────────────────────────────────────── */
+.import-card-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+.import-empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* ── Card ──────────────────────────────────────────────────────────────── */
+.import-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.import-card:hover {
+  border-color: var(--border-light);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.import-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 10px;
+}
+
+.import-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+
+.import-card-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(57, 197, 207, 0.12);
+  color: var(--accent-cyan);
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.import-card-body {
+  flex: 1;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.import-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.import-card-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.import-card-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  flex-shrink: 0;
+}
+
+.import-card-url {
+  font-size: 11px;
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  word-break: break-all;
+  text-align: right;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-card-url:hover {
+  text-decoration: underline;
+}
+
+.import-card-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.import-card-status.ok {
+  color: var(--accent-green);
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.import-card-status.phase {
+  color: var(--accent-orange);
+  background: rgba(210, 153, 29, 0.1);
+  animation: pulse 1.2s infinite;
+}
+
+.import-card-status.error {
+  color: var(--accent-red);
+  background: rgba(224, 108, 117, 0.1);
+}
+
+/* ── Stats Grid ────────────────────────────────────────────────────────── */
+.import-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 10px;
+  background: var(--bg-primary);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.import-card-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.import-stat-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.import-stat-value {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.import-stat-value.count {
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+
+/* ── Error ─────────────────────────────────────────────────────────────── */
+.import-card-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(224, 108, 117, 0.08);
+  border: 1px solid rgba(224, 108, 117, 0.25);
+  border-radius: var(--radius);
+}
+
+.import-error-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+  color: var(--accent-red);
+}
+
+.import-error-text {
+  font-size: 11px;
+  color: var(--accent-red);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+/* ── Action Buttons ────────────────────────────────────────────────────── */
+.import-card-actions {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.import-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+
+.import-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-light);
+  background: var(--bg-hover);
+}
+
+.import-btn:active {
+  transform: scale(0.97);
+}
+
+.import-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.import-btn.primary {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.import-btn.primary:hover {
+  background: rgba(57, 197, 207, 0.1);
+}
+
+.import-btn.download:hover {
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+.import-btn.parse:hover {
+  border-color: var(--accent-orange);
+  color: var(--accent-orange);
+}
+
+.import-btn.import:hover {
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+}

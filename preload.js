@@ -24,6 +24,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFlightData: () => ipcRenderer.invoke('opensky:get-flights'),
   refreshFlights: () => ipcRenderer.invoke('opensky:refresh'),
 
+  // ── Data Source Import ──────────────────────────────────────────────────
+  listDataSources: () => ipcRenderer.invoke('dataSources:list'),
+  getDataSourceStatus: (sourceId) => ipcRenderer.invoke('dataSources:status', sourceId),
+  downloadDataSource: (sourceId) => ipcRenderer.invoke('dataSources:download', sourceId),
+  parseDataSource: (sourceId) => ipcRenderer.invoke('dataSources:parse', sourceId),
+  importDataSource: (sourceId) => ipcRenderer.invoke('dataSources:import', sourceId),
+  updateAllDataSource: (sourceId) => ipcRenderer.invoke('dataSources:updateAll', sourceId),
+
   // ── Event listeners from main process ─────────────────────────────────────
   onFaaReady: (callback) => {
     ipcRenderer.on('faa:ready', (_event, stats) => callback(stats));

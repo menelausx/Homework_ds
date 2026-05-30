@@ -7,8 +7,10 @@ var AppModule = (function () {
   // ── Tab switching ───────────────────────────────────────────────────────
 
   var tabFaaOpensky = document.getElementById('tab-faa-opensky');
+  var tabImport = document.getElementById('tab-import');
   var tabAdmin = document.getElementById('tab-admin');
   var moduleFaaOpensky = document.getElementById('module-faa-opensky');
+  var moduleImport = document.getElementById('module-import');
   var moduleAdmin = document.getElementById('module-admin');
 
   var activeTab = 'faa-opensky';
@@ -27,16 +29,24 @@ var AppModule = (function () {
       }
     }
 
+    // Hide all modules first
+    if (moduleFaaOpensky) moduleFaaOpensky.style.display = 'none';
+    if (moduleImport) moduleImport.style.display = 'none';
+    if (moduleAdmin) moduleAdmin.style.display = 'none';
+
     // Show/hide module content
     if (tabName === 'faa-opensky') {
       if (moduleFaaOpensky) moduleFaaOpensky.style.display = '';
-      if (moduleAdmin) moduleAdmin.style.display = 'none';
       // Trigger map resize if it was hidden
       if (typeof FaaOpenskyModule !== 'undefined' && FaaOpenskyModule.onActivate) {
         FaaOpenskyModule.onActivate();
       }
+    } else if (tabName === 'import') {
+      if (moduleImport) moduleImport.style.display = '';
+      if (typeof ImportModule !== 'undefined' && ImportModule.onActivate) {
+        ImportModule.onActivate();
+      }
     } else if (tabName === 'admin') {
-      if (moduleFaaOpensky) moduleFaaOpensky.style.display = 'none';
       if (moduleAdmin) moduleAdmin.style.display = '';
       if (typeof AdminModule !== 'undefined' && AdminModule.onActivate) {
         AdminModule.onActivate();
@@ -47,6 +57,12 @@ var AppModule = (function () {
   if (tabFaaOpensky) {
     tabFaaOpensky.addEventListener('click', function () {
       switchTab('faa-opensky');
+    });
+  }
+
+  if (tabImport) {
+    tabImport.addEventListener('click', function () {
+      switchTab('import');
     });
   }
 

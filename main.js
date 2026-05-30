@@ -3,6 +3,8 @@ const path = require('path');
 const faaService = require('./src/main/faaService');
 const openskyService = require('./src/main/openskyService');
 const userService = require('./src/main/userService');
+const dataSourceService = require('./src/main/dataSourceService');
+const databaseService = require('./src/main/databaseService');
 
 let mainWindow = null;
 let defaultAdminCreated = false;
@@ -192,6 +194,72 @@ function setupOpenskyIpcHandlers() {
   });
 }
 
+// ── Data Source Import IPC handlers ─────────────────────────────────────────
+
+function setupDataSourceIpcHandlers() {
+  ipcMain.handle('dataSources:list', async () => {
+    try {
+      return dataSourceService.listSources();
+    } catch (error) {
+      console.error('[dataSources] List error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('dataSources:status', async (_event, sourceId) => {
+    try {
+      return dataSourceService.getStatus(sourceId);
+    } catch (error) {
+      console.error('[dataSources] Status error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:download', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.download(sourceId);
+      console.log('[dataSources] Download ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Download error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:parse', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.parse(sourceId);
+      console.log('[dataSources] Parse ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Parse error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:import', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.importToDb(sourceId);
+      console.log('[dataSources] Import ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Import error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:updateAll', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.updateAll(sourceId);
+      console.log('[dataSources] UpdateAll ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] UpdateAll error:', error.message);
+      return { success: false, error: error.message, phases: ['failed'] };
+    }
+  });
+}
+
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -210,6 +278,7 @@ app.whenReady().then(() => {
   setupUsersIpcHandlers();
   setupFaaIpcHandlers();
   setupOpenskyIpcHandlers();
+  setupDataSourceIpcHandlers();
 
   // 4. Load FAA database in background, notify renderer when done
   faaService
@@ -235,5 +304,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   userService.closeDatabase();
+  databaseService.closeDatabase();
   app.quit();
 });

@@ -240,4 +240,4 @@ async function refresh() {
   return { recordCount };
 }
 
-module.exports = { initialize, getStats, getAircraftInfo, refresh };
+module.exports = { initialize, getStats, getAircraftInfo, refresh, parseCSVLine, parseMasterText, loadFromZip, downloadFile };

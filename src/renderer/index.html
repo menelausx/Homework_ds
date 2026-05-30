@@ -64,6 +64,10 @@
         <span class="tab-icon">&#9992;</span>
         FAA/OpenSky 分析
       </div>
+      <div class="tab" data-tab="import" id="tab-import">
+        <span class="tab-icon">&#128230;</span>
+        数据采集入库
+      </div>
       <div class="tab" data-tab="admin" id="tab-admin">
         <span class="tab-icon">&#9881;</span>
         系统管理
@@ -194,6 +198,26 @@
             <div class="detail-item"><span class="detail-label">spi</span><span class="detail-value" data-dfield="spi">-</span></div>
             <div class="detail-item"><span class="detail-label">position_source</span><span class="detail-value" data-dfield="position_source">-</span></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Data Import Module ─────────────────────────────────────────── -->
+    <div class="module-content" id="module-import" style="display:none;">
+      <div class="import-container">
+        <div class="import-toolbar">
+          <div class="import-toolbar-left">
+            <h2 class="import-page-title">数据采集入库</h2>
+            <span class="import-page-subtitle">管理外部数据源的下载、解析与入库</span>
+          </div>
+          <div class="import-toolbar-right">
+            <button class="toolbar-btn" id="btn-import-refresh">
+              <span class="btn-icon">&#8635;</span> 刷新状态
+            </button>
+          </div>
+        </div>
+        <div class="import-card-grid" id="import-card-grid">
+          <div class="import-empty">加载中...</div>
         </div>
       </div>
     </div>
@@ -341,6 +365,7 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="admin.js"></script>
+  <script src="import.js"></script>
   <script src="app.js"></script>
   <script src="login.js"></script>
 </body>
