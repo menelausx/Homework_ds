@@ -4,6 +4,7 @@
   "description": "数据安全动态采集系统 - FAA/OpenSky 航班动态分析模块",
   "main": "main.js",
   "scripts": {
+    "postinstall": "electron-builder install-app-deps",
     "start": "electron .",
     "build": "electron-builder --win portable"
   },
@@ -11,7 +12,8 @@
   "license": "ISC",
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.10.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",

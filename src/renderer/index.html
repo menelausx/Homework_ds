@@ -21,6 +21,9 @@
           <p class="login-subtitle">Data Security Dynamic Collection System</p>
         </div>
         <div class="login-form">
+          <div class="login-default-hint" id="login-default-hint" style="display:none;">
+            初始账号：admin，密码：admin123
+          </div>
           <div class="login-field">
             <label class="login-label" for="login-username">用户名</label>
             <input
@@ -212,7 +215,7 @@
                 id="admin-search-input"
                 placeholder="搜索用户名..."
               />
-              <button class="toolbar-btn" id="btn-admin-search">&#128269; 搜索</button>
+              <button class="toolbar-btn" id="btn-admin-search">搜索</button>
             </div>
           </div>
           <div class="admin-toolbar-right">
@@ -337,8 +340,8 @@
   <!--  Scripts                                                             -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="login.js"></script>
   <script src="admin.js"></script>
   <script src="app.js"></script>
+  <script src="login.js"></script>
 </body>
 </html>

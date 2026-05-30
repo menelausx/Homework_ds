@@ -5,6 +5,7 @@ const openskyService = require('./src/main/openskyService');
 const userService = require('./src/main/userService');
 
 let mainWindow = null;
+let defaultAdminCreated = false;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -66,6 +67,12 @@ function setupAuthIpcHandlers() {
       console.error('[auth] Session check error:', error.message);
       return null;
     }
+  });
+
+  ipcMain.handle('auth:bootstrapInfo', async () => {
+    return {
+      defaultAdminCreated,
+    };
   });
 }
 
@@ -189,7 +196,11 @@ function setupOpenskyIpcHandlers() {
 
 app.whenReady().then(() => {
   // 1. Seed default admin account if no users exist
-  userService.seedDefaultAdmin();
+  const seedResult = userService.seedDefaultAdmin();
+  defaultAdminCreated = !!seedResult.created;
+  if (defaultAdminCreated) {
+    userService.clearSession();
+  }
 
   // 2. Create the window (login page loads first)
   createWindow();
@@ -223,5 +234,6 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  userService.closeDatabase();
   app.quit();
 });

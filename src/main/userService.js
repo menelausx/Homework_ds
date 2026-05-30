@@ -1,14 +1,14 @@
 const path = require('path');
 const fs = require('fs');
 const { app } = require('electron');
+const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 
-// ── Config ─────────────────────────────────────────────────────────────────
 const SALT_ROUNDS = 12;
-const USERS_FILE = 'users.json';
+const DB_FILE = 'app.db';
 const SESSION_FILE = 'session.json';
 
-// ── Data directory ─────────────────────────────────────────────────────────
+let db = null;
 
 function getDataDir() {
   if (app.isPackaged) {
@@ -29,41 +29,49 @@ function getFilePath(filename) {
   return path.join(ensureDataDir(), filename);
 }
 
-// ── User storage (JSON file — consistent with cacheService pattern) ────────
-
-function readUsers() {
-  const filePath = getFilePath(USERS_FILE);
-  if (!fs.existsSync(filePath)) return [];
-  try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return Array.isArray(data) ? data : [];
-  } catch (err) {
-    console.error('[userService] Error reading users.json:', err.message);
-    return [];
-  }
+function getDbPath() {
+  return getFilePath(DB_FILE);
 }
 
-function writeUsers(users) {
-  const filePath = getFilePath(USERS_FILE);
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(users, null, 2), 'utf8');
-  } catch (err) {
-    console.error('[userService] Error writing users.json:', err.message);
-  }
+function nowSql() {
+  return new Date().toISOString().replace('T', ' ').substring(0, 19);
 }
 
-// ── Next ID ────────────────────────────────────────────────────────────────
-
-function getNextId(users) {
-  if (users.length === 0) return 1;
-  var maxId = 0;
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].id > maxId) maxId = users[i].id;
+function getDb() {
+  if (!db) {
+    db = new Database(getDbPath());
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    initializeSchema();
   }
-  return maxId + 1;
+  return db;
 }
 
-// ── Password helpers ───────────────────────────────────────────────────────
+function initializeSchema() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'admin',
+      created_at TEXT NOT NULL,
+      last_login TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+  `);
+}
+
+function toSafeUser(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    username: row.username,
+    role: row.role,
+    created_at: row.created_at,
+    last_login: row.last_login,
+  };
+}
 
 function hashPassword(plainPassword) {
   return bcrypt.hashSync(plainPassword, SALT_ROUNDS);
@@ -73,267 +81,191 @@ function verifyPassword(plainPassword, hash) {
   return bcrypt.compareSync(plainPassword, hash);
 }
 
-// ── Auth operations ────────────────────────────────────────────────────────
-
-/**
- * Verify login credentials.
- * Returns the user object (without password_hash) on success, or null.
- */
 function verifyLogin(username, password) {
-  var users = readUsers();
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].username === username) {
-      if (verifyPassword(password, users[i].password_hash)) {
-        // Update last_login
-        users[i].last_login = new Date().toISOString().replace('T', ' ').substring(0, 19);
-        writeUsers(users);
+  const database = getDb();
+  const row = database
+    .prepare('SELECT * FROM users WHERE username = ?')
+    .get(String(username || '').trim());
 
-        return {
-          id: users[i].id,
-          username: users[i].username,
-          role: users[i].role,
-          created_at: users[i].created_at,
-          last_login: users[i].last_login,
-        };
-      }
-      return null; // password mismatch
-    }
+  if (!row || !verifyPassword(password, row.password_hash)) {
+    return null;
   }
-  return null; // user not found
+
+  const lastLogin = nowSql();
+  database.prepare('UPDATE users SET last_login = ? WHERE id = ?').run(lastLogin, row.id);
+  row.last_login = lastLogin;
+  return toSafeUser(row);
 }
 
-/**
- * Get a user by id (safe projection, no password_hash).
- */
 function getUserById(id) {
-  var users = readUsers();
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].id === id) {
-      return {
-        id: users[i].id,
-        username: users[i].username,
-        role: users[i].role,
-        created_at: users[i].created_at,
-        last_login: users[i].last_login,
-      };
-    }
-  }
-  return null;
+  const row = getDb()
+    .prepare('SELECT id, username, role, created_at, last_login FROM users WHERE id = ?')
+    .get(Number(id));
+  return toSafeUser(row);
 }
 
-// ── CRUD operations ────────────────────────────────────────────────────────
-
-/**
- * List users with optional search and pagination.
- * Returns { users, total, page, limit }.
- */
 function listUsers(opts) {
   opts = opts || {};
-  var safePage = Math.max(1, parseInt(opts.page, 10) || 1);
-  var safeLimit = Math.max(1, Math.min(100, parseInt(opts.limit, 10) || 20));
-  var search = (opts.search || '').trim();
+  const safePage = Math.max(1, parseInt(opts.page, 10) || 1);
+  const safeLimit = Math.max(1, Math.min(100, parseInt(opts.limit, 10) || 20));
+  const offset = (safePage - 1) * safeLimit;
+  const search = String(opts.search || '').trim();
+  const database = getDb();
 
-  var allUsers = readUsers();
-
-  // Filter by search
-  var filtered = allUsers;
+  let total;
+  let users;
   if (search) {
-    var lowerSearch = search.toLowerCase();
-    filtered = allUsers.filter(function (u) {
-      return u.username.toLowerCase().indexOf(lowerSearch) !== -1;
-    });
+    const like = '%' + search + '%';
+    total = database
+      .prepare('SELECT COUNT(*) AS count FROM users WHERE username LIKE ?')
+      .get(like).count;
+    users = database
+      .prepare(
+        `SELECT id, username, role, created_at, last_login
+         FROM users
+         WHERE username LIKE ?
+         ORDER BY id ASC
+         LIMIT ? OFFSET ?`
+      )
+      .all(like, safeLimit, offset);
+  } else {
+    total = database.prepare('SELECT COUNT(*) AS count FROM users').get().count;
+    users = database
+      .prepare(
+        `SELECT id, username, role, created_at, last_login
+         FROM users
+         ORDER BY id ASC
+         LIMIT ? OFFSET ?`
+      )
+      .all(safeLimit, offset);
   }
 
-  // Sort by id ascending
-  filtered.sort(function (a, b) {
-    return a.id - b.id;
-  });
-
-  var total = filtered.length;
-  var offset = (safePage - 1) * safeLimit;
-  var pageUsers = filtered.slice(offset, offset + safeLimit);
-
-  // Strip password_hash from results
-  var safeUsers = pageUsers.map(function (u) {
-    return {
-      id: u.id,
-      username: u.username,
-      role: u.role,
-      created_at: u.created_at,
-      last_login: u.last_login,
-    };
-  });
-
   return {
-    users: safeUsers,
-    total: total,
+    users: users.map(toSafeUser),
+    total,
     page: safePage,
     limit: safeLimit,
   };
 }
 
-/**
- * Create a new user.
- */
 function createUser(username, password) {
-  if (!username || !username.trim()) {
+  const trimmedUsername = String(username || '').trim();
+  if (!trimmedUsername) {
     return { success: false, error: '用户名不能为空' };
   }
   if (!password || password.length < 1) {
     return { success: false, error: '密码不能为空' };
   }
 
-  var users = readUsers();
-  var trimmedUsername = username.trim();
+  const database = getDb();
+  const now = nowSql();
 
-  // Check uniqueness
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].username === trimmedUsername) {
+  try {
+    const result = database
+      .prepare(
+        `INSERT INTO users (username, password_hash, role, created_at, last_login)
+         VALUES (?, ?, 'admin', ?, NULL)`
+      )
+      .run(trimmedUsername, hashPassword(password), now);
+    return {
+      success: true,
+      user: getUserById(result.lastInsertRowid),
+    };
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return { success: false, error: '用户名已存在' };
     }
+    throw err;
   }
-
-  var now = new Date().toISOString().replace('T', ' ').substring(0, 19);
-  var newUser = {
-    id: getNextId(users),
-    username: trimmedUsername,
-    password_hash: hashPassword(password),
-    role: 'admin',
-    created_at: now,
-    last_login: null,
-  };
-
-  users.push(newUser);
-  writeUsers(users);
-
-  return {
-    success: true,
-    user: {
-      id: newUser.id,
-      username: newUser.username,
-      role: newUser.role,
-      created_at: newUser.created_at,
-      last_login: newUser.last_login,
-    },
-  };
 }
 
-/**
- * Update a user's username.
- */
 function updateUser(id, username) {
-  if (!username || !username.trim()) {
+  const userId = Number(id);
+  const trimmedUsername = String(username || '').trim();
+  if (!trimmedUsername) {
     return { success: false, error: '用户名不能为空' };
   }
 
-  var users = readUsers();
-  var trimmedUsername = username.trim();
+  const database = getDb();
+  const existing = getUserById(userId);
+  if (!existing) {
+    return { success: false, error: '用户不存在' };
+  }
 
-  // Check uniqueness (exclude current user)
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].id !== id && users[i].username === trimmedUsername) {
+  try {
+    database.prepare('UPDATE users SET username = ? WHERE id = ?').run(trimmedUsername, userId);
+    return { success: true, user: getUserById(userId) };
+  } catch (err) {
+    if (err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
       return { success: false, error: '用户名已存在' };
     }
+    throw err;
   }
-
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].id === id) {
-      users[i].username = trimmedUsername;
-      writeUsers(users);
-      return {
-        success: true,
-        user: {
-          id: users[i].id,
-          username: users[i].username,
-          role: users[i].role,
-          created_at: users[i].created_at,
-          last_login: users[i].last_login,
-        },
-      };
-    }
-  }
-
-  return { success: false, error: '用户不存在' };
 }
 
-/**
- * Delete a user by id.
- * Prevent self-deletion and prevent deleting the last user.
- */
 function deleteUser(id, currentUserId) {
-  if (id === currentUserId) {
+  const userId = Number(id);
+  if (userId === Number(currentUserId)) {
     return { success: false, error: '不能删除当前登录账号' };
   }
 
-  var users = readUsers();
-  if (users.length <= 1) {
+  const database = getDb();
+  const count = database.prepare('SELECT COUNT(*) AS count FROM users').get().count;
+  if (count <= 1) {
     return { success: false, error: '系统至少需要保留一个账号' };
   }
 
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].id === id) {
-      users.splice(i, 1);
-      writeUsers(users);
-      return { success: true };
-    }
+  const result = database.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  if (result.changes === 0) {
+    return { success: false, error: '用户不存在' };
   }
 
-  return { success: false, error: '用户不存在' };
+  return { success: true };
 }
 
-/**
- * Reset a user's password.
- */
 function resetPassword(id, newPassword) {
   if (!newPassword || newPassword.length < 1) {
     return { success: false, error: '密码不能为空' };
   }
 
-  var users = readUsers();
-  for (var i = 0; i < users.length; i++) {
-    if (users[i].id === id) {
-      users[i].password_hash = hashPassword(newPassword);
-      writeUsers(users);
-      return { success: true };
-    }
+  const result = getDb()
+    .prepare('UPDATE users SET password_hash = ? WHERE id = ?')
+    .run(hashPassword(newPassword), Number(id));
+
+  if (result.changes === 0) {
+    return { success: false, error: '用户不存在' };
   }
 
-  return { success: false, error: '用户不存在' };
+  return { success: true };
 }
 
-/**
- * Seed a default admin account if no users exist.
- */
 function seedDefaultAdmin() {
-  var users = readUsers();
-  if (users.length === 0) {
-    createUser('admin', 'admin123');
+  const count = getDb().prepare('SELECT COUNT(*) AS count FROM users').get().count;
+  if (count === 0) {
+    const result = createUser('admin', 'admin123');
     console.log('[userService] Seeded default admin account (admin / admin123)');
+    return { created: true, user: result.user };
   }
+  return { created: false };
 }
-
-// ── Session persistence ────────────────────────────────────────────────────
 
 function saveSession(user) {
-  var sessionData = {
+  const sessionData = {
     userId: user.id,
     username: user.username,
     role: user.role,
     loginTime: new Date().toISOString(),
   };
-  var filePath = getFilePath(SESSION_FILE);
-  fs.writeFileSync(filePath, JSON.stringify(sessionData, null, 2), 'utf8');
+  fs.writeFileSync(getFilePath(SESSION_FILE), JSON.stringify(sessionData, null, 2), 'utf8');
   console.log('[userService] Session saved for user', user.username);
 }
 
 function loadSession() {
-  var filePath = getFilePath(SESSION_FILE);
+  const filePath = getFilePath(SESSION_FILE);
   if (!fs.existsSync(filePath)) return null;
   try {
-    var data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    var user = getUserById(data.userId);
-    if (!user) return null;
-    return user;
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return getUserById(data.userId);
   } catch (err) {
     console.error('[userService] Failed to load session:', err.message);
     return null;
@@ -341,32 +273,31 @@ function loadSession() {
 }
 
 function clearSession() {
-  var filePath = getFilePath(SESSION_FILE);
+  const filePath = getFilePath(SESSION_FILE);
   if (fs.existsSync(filePath)) {
     fs.unlinkSync(filePath);
   }
   console.log('[userService] Session cleared');
 }
 
-// ── Module exports ─────────────────────────────────────────────────────────
+function closeDatabase() {
+  if (db) {
+    db.close();
+    db = null;
+  }
+}
 
 module.exports = {
-  // Auth
   verifyLogin,
   getUserById,
-
-  // CRUD
   listUsers,
   createUser,
   updateUser,
   deleteUser,
   resetPassword,
-
-  // Lifecycle
   seedDefaultAdmin,
-
-  // Session
   saveSession,
   loadSession,
   clearSession,
+  closeDatabase,
 };

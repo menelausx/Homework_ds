@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   login: (username, password) => ipcRenderer.invoke('auth:login', username, password),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getCurrentUser: () => ipcRenderer.invoke('auth:me'),
+  getBootstrapInfo: () => ipcRenderer.invoke('auth:bootstrapInfo'),
 
   // ── User Management ───────────────────────────────────────────────────────
   listUsers: (opts) => ipcRenderer.invoke('users:list', opts),

@@ -8,6 +8,7 @@ var LoginModule = (function () {
   var loginOverlay = document.getElementById('login-overlay');
   var appContainer = document.getElementById('app-container');
   var loginStatus = document.getElementById('login-status');
+  var defaultAdminHint = document.getElementById('login-default-hint');
   var btnLogin = document.getElementById('btn-login');
   var inputUsername = document.getElementById('login-username');
   var inputPassword = document.getElementById('login-password');
@@ -16,6 +17,7 @@ var LoginModule = (function () {
 
   // ── Internal state ──────────────────────────────────────────────────────
   var currentUser = null;
+  var showDefaultAdminHint = false;
 
   function showStatus(msg, type) {
     loginStatus.textContent = msg;
@@ -26,6 +28,13 @@ var LoginModule = (function () {
   function clearStatus() {
     loginStatus.textContent = '';
     loginStatus.className = 'login-status';
+  }
+
+  function showInitialAccountHint() {
+    if (defaultAdminHint) {
+      defaultAdminHint.style.display = '';
+    }
+    showStatus('请手动输入初始账号登录。', 'success');
   }
 
   // ── Public API ──────────────────────────────────────────────────────────
@@ -40,8 +49,12 @@ var LoginModule = (function () {
     if (loginOverlay) loginOverlay.style.display = '';
     if (appContainer) appContainer.style.display = 'none';
     clearStatus();
+    if (defaultAdminHint) defaultAdminHint.style.display = 'none';
     if (inputUsername) inputUsername.value = '';
     if (inputPassword) inputPassword.value = '';
+    if (showDefaultAdminHint) {
+      showInitialAccountHint();
+    }
   }
 
   /** Hide the login overlay & show the app. */
@@ -172,16 +185,30 @@ var LoginModule = (function () {
   }
 
   // ── Auto-restore session on load ────────────────────────────────────────
-  tryRestoreSession().then(function (loggedIn) {
-    if (!loggedIn) {
-      showLogin();
-    } else {
-      // Session restored successfully; the app should already be visible.
-      // Notify AppModule if it exists.
-      if (typeof AppModule !== 'undefined' && AppModule.onLogin) {
-        AppModule.onLogin(currentUser);
+  var bootstrapInfoReady = Promise.resolve();
+  if (window.electronAPI && window.electronAPI.getBootstrapInfo) {
+    bootstrapInfoReady = window.electronAPI
+      .getBootstrapInfo()
+      .then(function (info) {
+        showDefaultAdminHint = !!(info && info.defaultAdminCreated);
+      })
+      .catch(function (err) {
+        console.error('Bootstrap info error:', err);
+      });
+  }
+
+  bootstrapInfoReady.then(function () {
+    tryRestoreSession().then(function (loggedIn) {
+      if (!loggedIn) {
+        showLogin();
+      } else {
+        // Session restored successfully; the app should already be visible.
+        // Notify AppModule if it exists.
+        if (typeof AppModule !== 'undefined' && AppModule.onLogin) {
+          AppModule.onLogin(currentUser);
+        }
       }
-    }
+    });
   });
 
   // ── Exports ─────────────────────────────────────────────────────────────
