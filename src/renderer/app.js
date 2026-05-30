@@ -370,7 +370,7 @@ var FaaOpenskyModule = (function () {
     return document.querySelector(sel);
   };
 
-  var btnRefreshFlights, btnRefreshFaa, btnDetailClose;
+  var btnRefreshAnalysis, btnDetailClose;
   var statFlightCount, statFaaMatched, statFaaRecords, statCacheTime;
   var statusDot, statusText;
   var loadingOverlay, loadingText;
@@ -378,8 +378,7 @@ var FaaOpenskyModule = (function () {
   var detailPlaceholder, detailGrid;
 
   function cacheDomRefs() {
-    btnRefreshFlights = $('#btn-refresh-flights');
-    btnRefreshFaa = $('#btn-refresh-faa');
+    btnRefreshAnalysis = $('#btn-refresh-analysis');
     btnDetailClose = $('#btn-detail-close');
     statFlightCount = $('#stat-flight-count');
     statFaaMatched = $('#stat-faa-matched');
@@ -628,119 +627,68 @@ var FaaOpenskyModule = (function () {
     hideEl(faaNoMatch);
   }
 
-  // ==================== FAA Stats Display ====================
-  function updateFaaStatsDisplay() {
-    if (!statFaaRecords) return;
-    if (state.faaStats.error && !state.faaStats.loaded) {
-      statFaaRecords.textContent = '未加载';
-    } else {
-      statFaaRecords.textContent = state.faaStats.loaded
-        ? state.faaStats.recordCount.toLocaleString()
-        : '加载中...';
+  // ==================== Statistics (from SQLite via analysis:getStatistics) ===
+  function updateStatsFromDb(stats) {
+    if (!stats) return;
+    if (statFlightCount) statFlightCount.textContent = stats.flightCount.toLocaleString();
+    if (statFaaMatched) statFaaMatched.textContent = stats.faaMatched.toLocaleString();
+    if (statFaaRecords) {
+      statFaaRecords.textContent = stats.faaTotalRecords > 0
+        ? stats.faaTotalRecords.toLocaleString()
+        : '0';
     }
+    if (statCacheTime) statCacheTime.textContent = formatUnixTimestamp(stats.snapshotTime);
   }
 
-  // ==================== Load & Refresh ====================
-  async function loadInitialData() {
-    try {
-      state.faaStats = await window.electronAPI.getFaaStats();
-      updateFaaStatsDisplay();
+  // ==================== Load & Refresh (SQLite only, no external API) ========
+  async function loadFromDatabase() {
+    setStatus('loading', '正在从数据库加载数据...');
 
-      state.flightData = await window.electronAPI.getFlightData();
+    try {
+      state.flightData = await window.electronAPI.getFlights();
       rebuildFlightIndex();
+
+      var stats = await window.electronAPI.getStatistics();
+      updateStatsFromDb(stats);
+
       if (state.flightData.states.length > 0) {
+        state.faaCache.clear();
         updateVisibleMarkers();
         preloadFaaCache();
-        updateStats();
-        setStatus('ok', '已加载缓存数据 (' + state.flightData.states.length + ' 架航班)');
+        setStatus('ok', '已加载 ' + state.flightData.states.length + ' 架航班（快照: ' + formatUnixTimestamp(stats.snapshotTime) + '）');
       } else {
-        updateStats();
-        setStatus('ok', '就绪 - 请点击"刷新航班数据"获取航班信息');
+        updateVisibleMarkers();
+        setStatus('ok', '暂无航班数据 — 请先在"数据采集入库"页面导入 OpenSky 和 FAA 数据');
       }
     } catch (err) {
-      console.error('Initial load error:', err);
-      setStatus('error', '加载失败: ' + err.message);
+      console.error('Database load error:', err);
+      setStatus('error', '数据库查询失败: ' + err.message);
     }
   }
 
-  async function refreshFlights() {
-    setStatus('loading', '正在获取航班数据...');
-    if (btnRefreshFlights) btnRefreshFlights.disabled = true;
-
-    try {
-      var result = await window.electronAPI.refreshFlights();
-      if (result.success) {
-        state.flightData = await window.electronAPI.getFlightData();
-        rebuildFlightIndex();
-        state.faaCache.clear();
-        deselectFlight();
-        updateVisibleMarkers();
-        preloadFaaCache();
-        updateStats();
-        setStatus('ok', '航班数据已刷新 (' + result.flightCount + ' 架航班)');
-      } else {
-        setStatus('error', '航班刷新失败: ' + result.error);
-      }
-    } catch (err) {
-      setStatus('error', '航班刷新失败: ' + err.message);
-    } finally {
-      if (btnRefreshFlights) btnRefreshFlights.disabled = false;
-    }
+  async function loadInitialData() {
+    await loadFromDatabase();
   }
 
-  async function refreshFaaDatabase() {
-    setStatus('loading', '正在下载 FAA 数据库 (文件较大，约50-100MB，请耐心等待)...');
-    if (btnRefreshFaa) btnRefreshFaa.disabled = true;
-    showLoading('正在下载 FAA 数据库...\n文件较大，可能需要几分钟');
+  async function refreshFromDatabase() {
+    setStatus('loading', '正在刷新分析数据...');
+    if (btnRefreshAnalysis) btnRefreshAnalysis.disabled = true;
+    state.faaCache.clear();
+    deselectFlight();
 
     try {
-      var result = await window.electronAPI.refreshFaa();
-      if (result.success) {
-        state.faaStats = await window.electronAPI.getFaaStats();
-        updateFaaStatsDisplay();
-        state.faaCache.clear();
-
-        if (state.flightData.states.length > 0) {
-          deselectFlight();
-          updateVisibleMarkers();
-          preloadFaaCache();
-          updateStats();
-        }
-
-        setStatus('ok', 'FAA 数据库已刷新 (' + result.recordCount.toLocaleString() + ' 条记录)');
-      } else {
-        setStatus('error', 'FAA 刷新失败: ' + result.error);
-      }
+      await loadFromDatabase();
     } catch (err) {
-      setStatus('error', 'FAA 刷新失败: ' + err.message);
+      setStatus('error', '刷新失败: ' + err.message);
     } finally {
-      if (btnRefreshFaa) btnRefreshFaa.disabled = false;
-      hideLoading();
+      if (btnRefreshAnalysis) btnRefreshAnalysis.disabled = false;
     }
   }
 
   // ==================== Event Listeners ====================
   function bindEvents() {
-    if (btnRefreshFlights) btnRefreshFlights.addEventListener('click', refreshFlights);
-    if (btnRefreshFaa) btnRefreshFaa.addEventListener('click', refreshFaaDatabase);
+    if (btnRefreshAnalysis) btnRefreshAnalysis.addEventListener('click', refreshFromDatabase);
     if (btnDetailClose) btnDetailClose.addEventListener('click', deselectFlight);
-
-    window.electronAPI.onFaaReady(function (stats) {
-      state.faaStats = stats;
-      updateFaaStatsDisplay();
-
-      if (state.flightData.states.length > 0) {
-        state.faaCache.clear();
-        preloadFaaCache();
-      }
-      setStatus('ok', 'FAA 数据库加载完成 (' + stats.recordCount.toLocaleString() + ' 条记录)');
-    });
-
-    window.electronAPI.onFaaError(function (error) {
-      state.faaStats.error = error;
-      updateFaaStatsDisplay();
-      setStatus('error', 'FAA 数据库: ' + error);
-    });
 
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') {
@@ -773,10 +721,14 @@ var FaaOpenskyModule = (function () {
     loadInitialData();
   }
 
-  // Called when the FAA/OpenSky tab is activated (for map resize)
+  // Called when the FAA/OpenSky tab is activated — reload from DB + resize map
   function onActivate() {
     if (map) {
       map.invalidateSize();
+    }
+    if (initialized) {
+      // Reload flight data from database (user may have imported new data)
+      loadFromDatabase();
     }
   }
 

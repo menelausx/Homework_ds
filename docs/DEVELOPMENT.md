@@ -24,10 +24,11 @@ Main Process
   src/main/faaService.js
   src/main/openskyService.js
   src/main/cacheService.js
-  src/main/databaseService.js      ← 新增：数据表数据库连接
-  src/main/dataSourceService.js    ← 新增：数据源注册与调度
-  src/main/openskyDataSource.js    ← 新增：OpenSky 数据源
-  src/main/faaDataSource.js        ← 新增：FAA 数据源
+  src/main/databaseService.js      ← 数据表数据库连接
+  src/main/dataSourceService.js    ← 数据源注册与调度
+  src/main/openskyDataSource.js    ← OpenSky 数据源
+  src/main/faaDataSource.js        ← FAA 数据源
+  src/main/analysisService.js      ← SQLite 分析查询服务
 ```
 
 安全设置：
@@ -47,8 +48,8 @@ Main Process
 3. 如果用户表为空，创建默认账号 `admin / admin123`
 4. 如果创建了默认账号，清空 session，防止自动登录
 5. `createWindow()`
-6. 注册 Auth、Users、FAA、OpenSky IPC
-7. 后台初始化 FAA 数据库
+6. 注册 Auth、Users、Analysis、DataSources、Shell IPC
+7. 应用就绪（不再后台加载 FAA 文件；分析页面从 SQLite 读取数据）
 
 渲染端脚本加载顺序很重要：
 
@@ -176,23 +177,18 @@ Users：
 | `users:delete` | `id` | `{ success, error? }` |
 | `users:resetPassword` | `id, newPassword` | `{ success, error? }` |
 
-FAA：
+Analysis（FAA/OpenSky 分析页面，SQLite 只读查询）：
 
 | 通道 | 参数 | 返回 |
 | --- | --- | --- |
-| `faa:get-stats` | - | `{ recordCount, loaded, error }` |
-| `faa:get-info` | `icao24` | FAA 记录或 `null` |
-| `faa:get-info-bulk` | `icao24List` | `{ [icao24]: record }` |
-| `faa:refresh` | - | `{ success, recordCount?, error? }` |
-| `faa:ready` | 主进程推送 | FAA 加载完成 |
-| `faa:error` | 主进程推送 | FAA 加载失败 |
+| `analysis:getFlights` | - | `{ time, cacheTime, states, snapshotTime }` |
+| `analysis:getFlight` | `icao24` | 单条航班记录或 `null` |
+| `analysis:getStatistics` | - | `{ flightCount, faaMatched, faaTotalRecords, faaLoaded, faaError, snapshotTime }` |
+| `analysis:getFaaInfo` | `icao24` | FAA 记录（CSV 字段名格式）或 `null` |
+| `analysis:getFaaInfoBulk` | `icao24List` | `{ [icao24]: record }` |
 
-OpenSky：
-
-| 通道 | 参数 | 返回 |
-| --- | --- | --- |
-| `opensky:get-flights` | - | `{ time, cacheTime, states }` |
-| `opensky:refresh` | - | `{ success, flightCount?, cacheTime?, error? }` |
+> **注意**：分析页面已完全改为 SQLite 驱动，不再直接访问外部 API 或文件。
+> 以下旧 IPC 通道仍保留但分析页面不再使用：`faa:get-stats`、`faa:get-info`、`faa:get-info-bulk`、`faa:refresh`、`faa:ready`、`faa:error`、`opensky:get-flights`、`opensky:refresh`。
 
 Data Sources（数据采集入库）：
 
@@ -209,45 +205,61 @@ Data Sources（数据采集入库）：
 - `opensky_states` — OpenSky 全量航班状态数据
 - `faa_aircraft` — FAA 注册飞机数据库
 
-## FAA/OpenSky 数据流
+## FAA/OpenSky 分析数据流（SQLite 驱动）
 
-### OpenSky
-
-```text
-OpenSky API
-  -> openskyService.refresh()
-  -> fetchOpenSkyData()
-  -> convertStatesToObjects()
-  -> cacheService.writeJsonFile('opensky-cache.json')
-  -> renderer getFlightData()
-  -> FaaOpenskyModule 绘制航班
-```
-
-说明：
-
-- 启动时不会自动请求 OpenSky。
-- 首次无缓存时，需要用户点击“刷新航班数据”。
-- 缓存文件为 `data/opensky-cache.json`。
-
-### FAA
+分析页面完全基于 SQLite 运行，不直接访问外部 API 或文件。
 
 ```text
-ReleasableAircraft.zip
-  -> faaService.initialize()
-  -> AdmZip 读取 MASTER.txt
-  -> parseCSVLine()
-  -> Map<mode_s_code_hex, record>
-  -> faa:get-info / faa:get-info-bulk
+┌─────────────────────────────────────────────────────┐
+│ 数据采集入库页面                                      │
+│   → 下载原始数据 → 解析 → 写入 SQLite                  │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       ▼
+┌────────────────── SQLite ──────────────────────────┐
+│  opensky_states          faa_aircraft               │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       │ analysis: IPC (只读查询)
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│ FAA/OpenSky 分析页面                                  │
+│   → analysisService.getFlights()                    │
+│   → analysisService.getFaaInfo() / getFaaInfoBulk() │
+│   → 地图展示 + FAA 匹配 + 详情面板                      │
+└─────────────────────────────────────────────────────┘
 ```
 
-匹配字段：
+### 数据流（新版）
+
+1. 用户在”数据采集入库”页面导入数据 → 写入 `opensky_states` / `faa_aircraft` 表。
+2. 切换到”FAA/OpenSky 分析”页面。
+3. 页面激活时从数据库加载航班数据和 FAA 统计数据。
+4. 地图渲染所有航班，FAA 匹配通过 SQLite 查询完成。
+
+### 匹配逻辑
+
+匹配字段（与之前一致）：
 
 ```text
-FAA:     MODE S CODE HEX
-OpenSky: icao24
+FAA:     faa_aircraft.mode_s_code_hex
+OpenSky: opensky_states.icao24
 ```
 
-匹配时统一转为小写并去除空白。
+- 统一小写匹配。
+- `analysisService.getFaaInfo(icao24)` — 单条查询。
+- `analysisService.getFaaInfoBulk(icao24List)` — 批量查询，SQL `IN` 子句分块（500/批）。
+- 统计数据中的 FAA 匹配数通过 `INNER JOIN` 在数据库层完成。
+
+### 旧版数据流（已废弃）
+
+以下流程不再被分析页面使用：
+
+- ~~OpenSky API → opensky-cache.json → 内存~~
+- ~~ReleasableAircraft.zip → MASTER.txt → 内存 Map~~
+- ~~后台 FAA 初始化（`faaService.initialize()`）~~
+
+旧服务模块（`faaService.js`、`openskyService.js`）仍保留用于数据采集入库页面的解析逻辑。
 
 ## 数据采集入库
 
@@ -387,6 +399,13 @@ FAA 官网 (https://registry.faa.gov/database/ReleasableAircraft.zip)
 
 `FaaOpenskyModule.initialize()` 只应在登录后调用一次。
 
+分析模块的数据来源已改为 SQLite：
+- `loadFromDatabase()` — 通过 `analysis:getFlights` + `analysis:getStatistics` 加载数据。
+- `preloadFaaCache()` — 通过 `analysis:getFaaInfoBulk` 批量获取 FAA 匹配数据。
+- `showFaaInfo()` — 通过 `analysis:getFaaInfo` 获取单条 FAA 记录。
+- 不再调用 `refreshFlights()`、`refreshFaaDatabase()` 等外部 API 方法。
+- 工具栏仅保留一个"刷新分析数据"按钮（重新查询数据库）。
+
 ## 依赖说明
 
 | 依赖 | 用途 |
@@ -427,6 +446,7 @@ node -c src/main/faaDataSource.js
 node -c src/main/openskyService.js
 node -c src/main/faaService.js
 node -c src/main/cacheService.js
+node -c src/main/analysisService.js
 node -c src/renderer/login.js
 node -c src/renderer/import.js
 node -c src/renderer/admin.js
@@ -489,20 +509,15 @@ login.js
 
 提示只在 `users` 表为空并自动创建默认账号的那次启动出现。如果数据库已有用户，不会显示默认账号提示。
 
-### FAA 数据库未加载
+### 分析页面无数据
 
-确认以下任一路径存在：
+分析页面完全基于 SQLite 运行。如果没有数据：
 
-- `data/ReleasableAircraft.zip`
-- 开发环境项目根目录下的 `ReleasableAircraft.zip`
+1. 切换到”数据采集入库”页面。
+2. 对 OpenSky 和 FAA 数据源点击”一键更新”（或分步：下载 → 解析 → 入库）。
+3. 切换回”FAA/OpenSky 分析”页面，点击”刷新分析数据”。
 
-也可以在界面点击“下载 FAA 数据库”重新下载。
-
-### 航班数据为空
-
-- 首次启动通常没有 OpenSky 缓存。
-- 点击“刷新航班数据”。
-- OpenSky API 可能偶发不可用，稍后重试。
+分析页面不会自动触发任何下载或外部 API 请求。
 
 ### Windows 打包失败，提示符号链接权限
 
@@ -528,11 +543,6 @@ login.js
 - 单独点击**解析**读取本地缓存，不发起网络请求。
 - 单独点击**入库**执行解析 + 写入数据库两步操作。
 - 下次软件启动后，数据采集入库页面显示的是上次操作的状态（记录数、各步骤时间等）。
-
-### FAA 数据源使用 fallback 文件
-
-`faaDataSource.parse()` 优先检查 `data/ReleasableAircraft.zip`。
-如果该文件不存在，在开发环境下会回退到项目根目录的 `ReleasableAircraft.zip`。这允许开发时复用已有的 FAA 数据文件而无需重新下载。
 
 ### OpenSky 数据源名称与分析页面的关系
 

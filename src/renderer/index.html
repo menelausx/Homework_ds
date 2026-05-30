@@ -85,11 +85,8 @@
     <div class="module-content" id="module-faa-opensky">
       <!-- Toolbar -->
       <div class="toolbar">
-        <button class="toolbar-btn primary" id="btn-refresh-flights" title="从 OpenSky 获取最新航班数据">
-          <span class="btn-icon">&#8635;</span> 刷新航班数据
-        </button>
-        <button class="toolbar-btn" id="btn-refresh-faa" title="下载最新 FAA 飞机注册数据库">
-          <span class="btn-icon">&#8681;</span> 下载 FAA 数据库
+        <button class="toolbar-btn primary" id="btn-refresh-analysis" title="从数据库重新加载分析数据">
+          <span class="btn-icon">&#8635;</span> 刷新分析数据
         </button>
         <div class="toolbar-divider"></div>
         <div class="toolbar-stat">
@@ -102,16 +99,16 @@
         </div>
         <div class="toolbar-stat">
           <span class="stat-label">FAA 记录</span>
-          <span class="stat-value" id="stat-faa-records">加载中...</span>
+          <span class="stat-value" id="stat-faa-records">0</span>
         </div>
         <div class="toolbar-stat">
-          <span class="stat-label">缓存时间</span>
+          <span class="stat-label">快照时间</span>
           <span class="stat-value" id="stat-cache-time">--</span>
         </div>
         <div class="toolbar-spacer"></div>
         <div class="toolbar-status" id="status-area">
           <span class="status-dot" id="status-dot"></span>
-          <span id="status-text">就绪</span>
+          <span id="status-text">请先在"数据采集入库"页面导入数据</span>
         </div>
       </div>
 

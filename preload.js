@@ -14,15 +14,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteUser: (id) => ipcRenderer.invoke('users:delete', id),
   resetUserPassword: (id, newPassword) => ipcRenderer.invoke('users:resetPassword', id, newPassword),
 
-  // ── FAA ───────────────────────────────────────────────────────────────────
-  getFaaStats: () => ipcRenderer.invoke('faa:get-stats'),
-  getFaaInfo: (icao24) => ipcRenderer.invoke('faa:get-info', icao24),
-  getFaaInfoBulk: (icao24List) => ipcRenderer.invoke('faa:get-info-bulk', icao24List),
-  refreshFaa: () => ipcRenderer.invoke('faa:refresh'),
-
-  // ── OpenSky ───────────────────────────────────────────────────────────────
-  getFlightData: () => ipcRenderer.invoke('opensky:get-flights'),
-  refreshFlights: () => ipcRenderer.invoke('opensky:refresh'),
+  // ── Analysis (SQLite-backed, read-only) ──────────────────────────────────
+  getFlights: () => ipcRenderer.invoke('analysis:getFlights'),
+  getFlight: (icao24) => ipcRenderer.invoke('analysis:getFlight', icao24),
+  getStatistics: () => ipcRenderer.invoke('analysis:getStatistics'),
+  getFaaInfo: (icao24) => ipcRenderer.invoke('analysis:getFaaInfo', icao24),
+  getFaaInfoBulk: (icao24List) => ipcRenderer.invoke('analysis:getFaaInfoBulk', icao24List),
 
   // ── Data Source Import ──────────────────────────────────────────────────
   listDataSources: () => ipcRenderer.invoke('dataSources:list'),
@@ -34,12 +31,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── Shell ──────────────────────────────────────────────────────────────────
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
-
-  // ── Event listeners from main process ─────────────────────────────────────
-  onFaaReady: (callback) => {
-    ipcRenderer.on('faa:ready', (_event, stats) => callback(stats));
-  },
-  onFaaError: (callback) => {
-    ipcRenderer.on('faa:error', (_event, error) => callback(error));
-  },
 });

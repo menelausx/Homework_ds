@@ -5,6 +5,7 @@ const openskyService = require('./src/main/openskyService');
 const userService = require('./src/main/userService');
 const dataSourceService = require('./src/main/dataSourceService');
 const databaseService = require('./src/main/databaseService');
+const analysisService = require('./src/main/analysisService');
 
 let mainWindow = null;
 let defaultAdminCreated = false;
@@ -281,6 +282,55 @@ function setupShellIpcHandlers() {
   });
 }
 
+// ── Analysis IPC handlers (SQLite-backed, no external API calls) ────────────
+
+function setupAnalysisIpcHandlers() {
+  ipcMain.handle('analysis:getFlights', async () => {
+    try {
+      return analysisService.getFlights();
+    } catch (error) {
+      console.error('[analysis] getFlights error:', error.message);
+      return { time: 0, cacheTime: null, states: [], snapshotTime: null };
+    }
+  });
+
+  ipcMain.handle('analysis:getFlight', async (_event, icao24) => {
+    try {
+      return analysisService.getFlight(icao24);
+    } catch (error) {
+      console.error('[analysis] getFlight error:', error.message);
+      return null;
+    }
+  });
+
+  ipcMain.handle('analysis:getStatistics', async () => {
+    try {
+      return analysisService.getStatistics();
+    } catch (error) {
+      console.error('[analysis] getStatistics error:', error.message);
+      return { flightCount: 0, faaMatched: 0, faaTotalRecords: 0, faaLoaded: false, faaError: error.message, snapshotTime: null };
+    }
+  });
+
+  ipcMain.handle('analysis:getFaaInfo', async (_event, icao24) => {
+    try {
+      return analysisService.getFaaInfo(icao24);
+    } catch (error) {
+      console.error('[analysis] getFaaInfo error:', error.message);
+      return null;
+    }
+  });
+
+  ipcMain.handle('analysis:getFaaInfoBulk', async (_event, icao24List) => {
+    try {
+      return analysisService.getFaaInfoBulk(icao24List);
+    } catch (error) {
+      console.error('[analysis] getFaaInfoBulk error:', error.message);
+      return {};
+    }
+  });
+}
+
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -301,21 +351,11 @@ app.whenReady().then(() => {
   setupOpenskyIpcHandlers();
   setupDataSourceIpcHandlers();
   setupShellIpcHandlers();
+  setupAnalysisIpcHandlers();
 
-  // 4. Load FAA database in background, notify renderer when done
-  faaService
-    .initialize()
-    .then(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('faa:ready', faaService.getStats());
-      }
-    })
-    .catch((err) => {
-      console.error('FAA initialization error:', err);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('faa:error', err.message);
-      }
-    });
+  // 4. App is ready — no background FAA loading needed.
+  //    Analysis page reads from SQLite via analysis: IPC channels.
+  //    Use the "数据采集入库" page to download/import data first.
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
