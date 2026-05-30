@@ -9,139 +9,336 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <!-- Tab Bar -->
-  <div class="tab-bar">
-    <div class="tab active" data-tab="faa-opensky">
-      <span class="tab-icon">&#9992;</span>
-      FAA/OpenSky 分析
-    </div>
-  </div>
 
-  <!-- Toolbar -->
-  <div class="toolbar">
-    <button class="toolbar-btn primary" id="btn-refresh-flights" title="从 OpenSky 获取最新航班数据">
-      <span class="btn-icon">&#8635;</span> 刷新航班数据
-    </button>
-    <button class="toolbar-btn" id="btn-refresh-faa" title="下载最新 FAA 飞机注册数据库">
-      <span class="btn-icon">&#8681;</span> 下载 FAA 数据库
-    </button>
-    <div class="toolbar-divider"></div>
-    <div class="toolbar-stat">
-      <span class="stat-label">航班总数</span>
-      <span class="stat-value" id="stat-flight-count">0</span>
-    </div>
-    <div class="toolbar-stat matched">
-      <span class="stat-label">FAA 匹配</span>
-      <span class="stat-value" id="stat-faa-matched">0</span>
-    </div>
-    <div class="toolbar-stat">
-      <span class="stat-label">FAA 记录</span>
-      <span class="stat-value" id="stat-faa-records">加载中...</span>
-    </div>
-    <div class="toolbar-stat">
-      <span class="stat-label">缓存时间</span>
-      <span class="stat-value" id="stat-cache-time">--</span>
-    </div>
-    <div class="toolbar-spacer"></div>
-    <div class="toolbar-status" id="status-area">
-      <span class="status-dot" id="status-dot"></span>
-      <span id="status-text">就绪</span>
-    </div>
-  </div>
-
-  <!-- Main Content -->
-  <div class="main-content">
-    <!-- Map Area -->
-    <div class="map-container">
-      <div id="map"></div>
-      <div class="map-legend">
-        <div class="legend-item">
-          <svg class="legend-icon" viewBox="0 -960 960 960" fill="#e06c75"><path d="M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z"/></svg>
-          已匹配 FAA
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!--  Login Overlay                                                       -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="login-overlay" id="login-overlay">
+    <div class="login-container">
+      <div class="login-card">
+        <div class="login-header">
+          <h1 class="login-title">数据安全动态采集系统</h1>
+          <p class="login-subtitle">Data Security Dynamic Collection System</p>
         </div>
-        <div class="legend-item">
-          <svg class="legend-icon" viewBox="0 -960 960 960" fill="#58a6ff"><path d="M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z"/></svg>
-          未匹配 FAA
-        </div>
-        <div class="legend-item">
-          <svg class="legend-icon selected" viewBox="0 -960 960 960" fill="#ffc846"><path d="M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z"/></svg>
-          已选中
-        </div>
-      </div>
-    </div>
-
-    <!-- FAA Side Panel -->
-    <div class="faa-panel" id="faa-panel">
-      <div class="panel-header">
-        <h3>FAA 注册信息</h3>
-      </div>
-      <div class="panel-body" id="faa-panel-body">
-        <div class="panel-placeholder" id="faa-placeholder">
-          <div class="placeholder-icon">&#128218;</div>
-          <div class="placeholder-text">请选择地图上的航班</div>
-        </div>
-        <div class="faa-info-content" id="faa-info-content" style="display:none;">
-          <div class="faa-field"><span class="faa-label">N-NUMBER</span><span class="faa-value" data-field="N-NUMBER">-</span></div>
-          <div class="faa-field"><span class="faa-label">NAME</span><span class="faa-value" data-field="NAME">-</span></div>
-          <div class="faa-field"><span class="faa-label">CITY</span><span class="faa-value" data-field="CITY">-</span></div>
-          <div class="faa-field"><span class="faa-label">STATE</span><span class="faa-value" data-field="STATE">-</span></div>
-          <div class="faa-field"><span class="faa-label">COUNTRY</span><span class="faa-value" data-field="COUNTRY">-</span></div>
-          <div class="faa-field"><span class="faa-label">YEAR MFR</span><span class="faa-value" data-field="YEAR MFR">-</span></div>
-          <div class="faa-field"><span class="faa-label">MODE S CODE HEX</span><span class="faa-value mono" data-field="MODE S CODE HEX">-</span></div>
-          <div class="faa-field"><span class="faa-label">SERIAL NUMBER</span><span class="faa-value" data-field="SERIAL NUMBER">-</span></div>
-          <div class="faa-field"><span class="faa-label">TYPE AIRCRAFT</span><span class="faa-value" data-field="TYPE AIRCRAFT">-</span></div>
-          <div class="faa-field"><span class="faa-label">TYPE ENGINE</span><span class="faa-value" data-field="TYPE ENGINE">-</span></div>
-          <div class="faa-field"><span class="faa-label">CERTIFICATION</span><span class="faa-value" data-field="CERTIFICATION">-</span></div>
-          <div class="faa-field"><span class="faa-label">STATUS CODE</span><span class="faa-value" data-field="STATUS CODE">-</span></div>
-          <div class="faa-field"><span class="faa-label">EXPIRATION DATE</span><span class="faa-value" data-field="EXPIRATION DATE">-</span></div>
-        </div>
-        <div class="faa-no-match" id="faa-no-match" style="display:none;">
-          <div class="placeholder-icon">&#9888;</div>
-          <div class="placeholder-text">该航班未匹配 FAA 注册信息</div>
+        <div class="login-form">
+          <div class="login-field">
+            <label class="login-label" for="login-username">用户名</label>
+            <input
+              type="text"
+              id="login-username"
+              class="login-input"
+              placeholder="请输入用户名"
+              autocomplete="username"
+            />
+          </div>
+          <div class="login-field">
+            <label class="login-label" for="login-password">密码</label>
+            <input
+              type="password"
+              id="login-password"
+              class="login-input"
+              placeholder="请输入密码"
+              autocomplete="current-password"
+            />
+          </div>
+          <button class="login-btn" id="btn-login">
+            登 录
+          </button>
+          <div class="login-status" id="login-status"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Bottom Detail Bar -->
-  <div class="detail-bar" id="detail-bar">
-    <div class="detail-header">
-      <h3>航班详情</h3>
-      <button class="detail-close" id="btn-detail-close" title="取消选中">&#10005;</button>
-    </div>
-    <div class="detail-content" id="detail-content">
-      <div class="detail-placeholder" id="detail-placeholder">
-        点击地图上的航班标记查看详细信息
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!--  Main App (hidden until login)                                       -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="app-container" id="app-container" style="display:none;">
+
+    <!-- Tab Bar -->
+    <div class="tab-bar">
+      <div class="tab active" data-tab="faa-opensky" id="tab-faa-opensky">
+        <span class="tab-icon">&#9992;</span>
+        FAA/OpenSky 分析
       </div>
-      <div class="detail-grid" id="detail-grid" style="display:none;">
-        <div class="detail-item"><span class="detail-label">icao24</span><span class="detail-value mono" data-dfield="icao24">-</span></div>
-        <div class="detail-item"><span class="detail-label">callsign</span><span class="detail-value" data-dfield="callsign">-</span></div>
-        <div class="detail-item"><span class="detail-label">origin_country</span><span class="detail-value" data-dfield="origin_country">-</span></div>
-        <div class="detail-item"><span class="detail-label">time_position</span><span class="detail-value" data-dfield="time_position">-</span></div>
-        <div class="detail-item"><span class="detail-label">last_contact</span><span class="detail-value" data-dfield="last_contact">-</span></div>
-        <div class="detail-item"><span class="detail-label">longitude</span><span class="detail-value mono" data-dfield="longitude">-</span></div>
-        <div class="detail-item"><span class="detail-label">latitude</span><span class="detail-value mono" data-dfield="latitude">-</span></div>
-        <div class="detail-item"><span class="detail-label">baro_altitude</span><span class="detail-value mono" data-dfield="baro_altitude">-</span></div>
-        <div class="detail-item"><span class="detail-label">on_ground</span><span class="detail-value" data-dfield="on_ground">-</span></div>
-        <div class="detail-item"><span class="detail-label">velocity</span><span class="detail-value mono" data-dfield="velocity">-</span></div>
-        <div class="detail-item"><span class="detail-label">true_track</span><span class="detail-value mono" data-dfield="true_track">-</span></div>
-        <div class="detail-item"><span class="detail-label">vertical_rate</span><span class="detail-value mono" data-dfield="vertical_rate">-</span></div>
-        <div class="detail-item"><span class="detail-label">sensors</span><span class="detail-value mono" data-dfield="sensors">-</span></div>
-        <div class="detail-item"><span class="detail-label">geo_altitude</span><span class="detail-value mono" data-dfield="geo_altitude">-</span></div>
-        <div class="detail-item"><span class="detail-label">squawk</span><span class="detail-value mono" data-dfield="squawk">-</span></div>
-        <div class="detail-item"><span class="detail-label">spi</span><span class="detail-value" data-dfield="spi">-</span></div>
-        <div class="detail-item"><span class="detail-label">position_source</span><span class="detail-value" data-dfield="position_source">-</span></div>
+      <div class="tab" data-tab="admin" id="tab-admin">
+        <span class="tab-icon">&#9881;</span>
+        系统管理
+      </div>
+      <div class="tab-spacer"></div>
+      <div class="tab user-info-tab" id="tab-user-info">
+        <span id="current-user-display">--</span>
+      </div>
+      <div class="tab logout-tab" id="tab-logout" title="注销登录">
+        注销
+      </div>
+    </div>
+
+    <!-- ── FAA/OpenSky Module ────────────────────────────────────────── -->
+    <div class="module-content" id="module-faa-opensky">
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <button class="toolbar-btn primary" id="btn-refresh-flights" title="从 OpenSky 获取最新航班数据">
+          <span class="btn-icon">&#8635;</span> 刷新航班数据
+        </button>
+        <button class="toolbar-btn" id="btn-refresh-faa" title="下载最新 FAA 飞机注册数据库">
+          <span class="btn-icon">&#8681;</span> 下载 FAA 数据库
+        </button>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-stat">
+          <span class="stat-label">航班总数</span>
+          <span class="stat-value" id="stat-flight-count">0</span>
+        </div>
+        <div class="toolbar-stat matched">
+          <span class="stat-label">FAA 匹配</span>
+          <span class="stat-value" id="stat-faa-matched">0</span>
+        </div>
+        <div class="toolbar-stat">
+          <span class="stat-label">FAA 记录</span>
+          <span class="stat-value" id="stat-faa-records">加载中...</span>
+        </div>
+        <div class="toolbar-stat">
+          <span class="stat-label">缓存时间</span>
+          <span class="stat-value" id="stat-cache-time">--</span>
+        </div>
+        <div class="toolbar-spacer"></div>
+        <div class="toolbar-status" id="status-area">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">就绪</span>
+        </div>
+      </div>
+
+      <!-- Main Content -->
+      <div class="main-content">
+        <!-- Map Area -->
+        <div class="map-container">
+          <div id="map"></div>
+          <div class="map-legend">
+            <div class="legend-item">
+              <svg class="legend-icon" viewBox="0 -960 960 960" fill="#e06c75"><path d="M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z"/></svg>
+              已匹配 FAA
+            </div>
+            <div class="legend-item">
+              <svg class="legend-icon" viewBox="0 -960 960 960" fill="#58a6ff"><path d="M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z"/></svg>
+              未匹配 FAA
+            </div>
+            <div class="legend-item">
+              <svg class="legend-icon selected" viewBox="0 -960 960 960" fill="#ffc846"><path d="M280-80v-100l120-84v-144L80-280v-120l320-224v-176q0-33 23.5-56.5T480-880q33 0 56.5 23.5T560-800v176l320 224v120L560-408v144l120 84v100l-200-60-200 60Z"/></svg>
+              已选中
+            </div>
+          </div>
+        </div>
+
+        <!-- FAA Side Panel -->
+        <div class="faa-panel" id="faa-panel">
+          <div class="panel-header">
+            <h3>FAA 注册信息</h3>
+          </div>
+          <div class="panel-body" id="faa-panel-body">
+            <div class="panel-placeholder" id="faa-placeholder">
+              <div class="placeholder-icon">&#128218;</div>
+              <div class="placeholder-text">请选择地图上的航班</div>
+            </div>
+            <div class="faa-info-content" id="faa-info-content" style="display:none;">
+              <div class="faa-field"><span class="faa-label">N-NUMBER</span><span class="faa-value" data-field="N-NUMBER">-</span></div>
+              <div class="faa-field"><span class="faa-label">NAME</span><span class="faa-value" data-field="NAME">-</span></div>
+              <div class="faa-field"><span class="faa-label">CITY</span><span class="faa-value" data-field="CITY">-</span></div>
+              <div class="faa-field"><span class="faa-label">STATE</span><span class="faa-value" data-field="STATE">-</span></div>
+              <div class="faa-field"><span class="faa-label">COUNTRY</span><span class="faa-value" data-field="COUNTRY">-</span></div>
+              <div class="faa-field"><span class="faa-label">YEAR MFR</span><span class="faa-value" data-field="YEAR MFR">-</span></div>
+              <div class="faa-field"><span class="faa-label">MODE S CODE HEX</span><span class="faa-value mono" data-field="MODE S CODE HEX">-</span></div>
+              <div class="faa-field"><span class="faa-label">SERIAL NUMBER</span><span class="faa-value" data-field="SERIAL NUMBER">-</span></div>
+              <div class="faa-field"><span class="faa-label">TYPE AIRCRAFT</span><span class="faa-value" data-field="TYPE AIRCRAFT">-</span></div>
+              <div class="faa-field"><span class="faa-label">TYPE ENGINE</span><span class="faa-value" data-field="TYPE ENGINE">-</span></div>
+              <div class="faa-field"><span class="faa-label">CERTIFICATION</span><span class="faa-value" data-field="CERTIFICATION">-</span></div>
+              <div class="faa-field"><span class="faa-label">STATUS CODE</span><span class="faa-value" data-field="STATUS CODE">-</span></div>
+              <div class="faa-field"><span class="faa-label">EXPIRATION DATE</span><span class="faa-value" data-field="EXPIRATION DATE">-</span></div>
+            </div>
+            <div class="faa-no-match" id="faa-no-match" style="display:none;">
+              <div class="placeholder-icon">&#9888;</div>
+              <div class="placeholder-text">该航班未匹配 FAA 注册信息</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Detail Bar -->
+      <div class="detail-bar" id="detail-bar">
+        <div class="detail-header">
+          <h3>航班详情</h3>
+          <button class="detail-close" id="btn-detail-close" title="取消选中">&#10005;</button>
+        </div>
+        <div class="detail-content" id="detail-content">
+          <div class="detail-placeholder" id="detail-placeholder">
+            点击地图上的航班标记查看详细信息
+          </div>
+          <div class="detail-grid" id="detail-grid" style="display:none;">
+            <div class="detail-item"><span class="detail-label">icao24</span><span class="detail-value mono" data-dfield="icao24">-</span></div>
+            <div class="detail-item"><span class="detail-label">callsign</span><span class="detail-value" data-dfield="callsign">-</span></div>
+            <div class="detail-item"><span class="detail-label">origin_country</span><span class="detail-value" data-dfield="origin_country">-</span></div>
+            <div class="detail-item"><span class="detail-label">time_position</span><span class="detail-value" data-dfield="time_position">-</span></div>
+            <div class="detail-item"><span class="detail-label">last_contact</span><span class="detail-value" data-dfield="last_contact">-</span></div>
+            <div class="detail-item"><span class="detail-label">longitude</span><span class="detail-value mono" data-dfield="longitude">-</span></div>
+            <div class="detail-item"><span class="detail-label">latitude</span><span class="detail-value mono" data-dfield="latitude">-</span></div>
+            <div class="detail-item"><span class="detail-label">baro_altitude</span><span class="detail-value mono" data-dfield="baro_altitude">-</span></div>
+            <div class="detail-item"><span class="detail-label">on_ground</span><span class="detail-value" data-dfield="on_ground">-</span></div>
+            <div class="detail-item"><span class="detail-label">velocity</span><span class="detail-value mono" data-dfield="velocity">-</span></div>
+            <div class="detail-item"><span class="detail-label">true_track</span><span class="detail-value mono" data-dfield="true_track">-</span></div>
+            <div class="detail-item"><span class="detail-label">vertical_rate</span><span class="detail-value mono" data-dfield="vertical_rate">-</span></div>
+            <div class="detail-item"><span class="detail-label">sensors</span><span class="detail-value mono" data-dfield="sensors">-</span></div>
+            <div class="detail-item"><span class="detail-label">geo_altitude</span><span class="detail-value mono" data-dfield="geo_altitude">-</span></div>
+            <div class="detail-item"><span class="detail-label">squawk</span><span class="detail-value mono" data-dfield="squawk">-</span></div>
+            <div class="detail-item"><span class="detail-label">spi</span><span class="detail-value" data-dfield="spi">-</span></div>
+            <div class="detail-item"><span class="detail-label">position_source</span><span class="detail-value" data-dfield="position_source">-</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── System Admin Module ────────────────────────────────────────── -->
+    <div class="module-content" id="module-admin" style="display:none;">
+      <div class="admin-container">
+        <!-- Admin Toolbar -->
+        <div class="admin-toolbar">
+          <div class="admin-toolbar-left">
+            <button class="toolbar-btn primary" id="btn-admin-new-user">
+              新建用户
+            </button>
+            <div class="toolbar-divider"></div>
+            <div class="admin-search">
+              <input
+                type="text"
+                class="admin-search-input"
+                id="admin-search-input"
+                placeholder="搜索用户名..."
+              />
+              <button class="toolbar-btn" id="btn-admin-search">&#128269; 搜索</button>
+            </div>
+          </div>
+          <div class="admin-toolbar-right">
+            <button class="toolbar-btn" id="btn-admin-refresh">
+              <span class="btn-icon">&#8635;</span> 刷新
+            </button>
+            <div class="toolbar-stat">
+              <span class="stat-label">用户总数</span>
+              <span class="stat-value" id="stat-user-count">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin Table -->
+        <div class="admin-table-wrapper">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>用户名</th>
+                <th>角色</th>
+                <th>创建时间</th>
+                <th>最后登录</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="admin-table-body">
+              <tr class="admin-table-empty">
+                <td colspan="6">暂无数据</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Admin Pagination -->
+        <div class="admin-pagination" id="admin-pagination">
+          <button class="toolbar-btn pagination-btn" id="btn-admin-prev" disabled>&#9664; 上一页</button>
+          <span class="pagination-info" id="admin-page-info">第 1 页 / 共 1 页</span>
+          <button class="toolbar-btn pagination-btn" id="btn-admin-next" disabled>下一页 &#9654;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loading-overlay" style="display:none;">
+      <div class="loading-spinner"></div>
+      <div class="loading-text" id="loading-text">加载中...</div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!--  Modals                                                              -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+
+  <!-- New / Edit User Modal -->
+  <div class="modal-overlay" id="modal-user" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="modal-user-title">新建用户</h3>
+        <button class="detail-close modal-close" id="btn-modal-user-close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-user-id" value="" />
+        <div class="login-field">
+          <label class="login-label" for="modal-username">用户名</label>
+          <input type="text" id="modal-username" class="login-input" placeholder="请输入用户名" />
+        </div>
+        <div class="login-field" id="modal-password-field">
+          <label class="login-label" for="modal-password">密码</label>
+          <input type="password" id="modal-password" class="login-input" placeholder="请输入密码" />
+        </div>
+        <div class="modal-status" id="modal-user-status"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" id="btn-modal-user-cancel">取消</button>
+        <button class="toolbar-btn primary" id="btn-modal-user-save">保存</button>
       </div>
     </div>
   </div>
 
-  <!-- Loading Overlay -->
-  <div class="loading-overlay" id="loading-overlay" style="display:none;">
-    <div class="loading-spinner"></div>
-    <div class="loading-text" id="loading-text">加载中...</div>
+  <!-- Reset Password Modal -->
+  <div class="modal-overlay" id="modal-password" style="display:none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>重置密码</h3>
+        <button class="detail-close modal-close" id="btn-modal-password-close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="modal-password-user-id" value="" />
+        <div class="login-field">
+          <label class="login-label" for="modal-new-password">新密码</label>
+          <input type="password" id="modal-new-password" class="login-input" placeholder="请输入新密码" />
+        </div>
+        <div class="modal-status" id="modal-password-status"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" id="btn-modal-password-cancel">取消</button>
+        <button class="toolbar-btn primary" id="btn-modal-password-save">确认重置</button>
+      </div>
+    </div>
   </div>
 
+  <!-- Confirm Delete Modal -->
+  <div class="modal-overlay" id="modal-confirm" style="display:none;">
+    <div class="modal-card modal-card-sm">
+      <div class="modal-header">
+        <h3>确认删除</h3>
+        <button class="detail-close modal-close" id="btn-modal-confirm-close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <p id="modal-confirm-message">确定要删除该用户吗？此操作不可撤销。</p>
+      </div>
+      <div class="modal-footer">
+        <button class="toolbar-btn" id="btn-modal-confirm-cancel">取消</button>
+        <button class="toolbar-btn" id="btn-modal-confirm-ok" style="border-color:var(--accent-red);color:var(--accent-red);">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!--  Scripts                                                             -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="login.js"></script>
+  <script src="admin.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

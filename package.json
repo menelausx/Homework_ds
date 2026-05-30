@@ -10,7 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "adm-zip": "^0.5.16"
+    "adm-zip": "^0.5.16",
+    "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
     "electron": "^33.0.0",
