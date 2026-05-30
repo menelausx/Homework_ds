@@ -6,7 +6,6 @@ const bcrypt = require('bcryptjs');
 
 const SALT_ROUNDS = 12;
 const DB_FILE = 'app.db';
-const SESSION_FILE = 'session.json';
 
 let db = null;
 
@@ -59,6 +58,15 @@ function initializeSchema() {
     );
 
     CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      user_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      role TEXT NOT NULL,
+      login_time TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
   `);
 }
 
@@ -259,33 +267,35 @@ function seedDefaultAdmin() {
 }
 
 function saveSession(user) {
-  const sessionData = {
-    userId: user.id,
-    username: user.username,
-    role: user.role,
-    loginTime: new Date().toISOString(),
-  };
-  fs.writeFileSync(getFilePath(SESSION_FILE), JSON.stringify(sessionData, null, 2), 'utf8');
+  getDb()
+    .prepare(
+      `INSERT INTO sessions (id, user_id, username, role, login_time)
+       VALUES (1, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         user_id = excluded.user_id,
+         username = excluded.username,
+         role = excluded.role,
+         login_time = excluded.login_time`
+    )
+    .run(user.id, user.username, user.role, new Date().toISOString());
   console.log('[userService] Session saved for user', user.username);
 }
 
 function loadSession() {
-  const filePath = getFilePath(SESSION_FILE);
-  if (!fs.existsSync(filePath)) return null;
-  try {
-    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    return getUserById(data.userId);
-  } catch (err) {
-    console.error('[userService] Failed to load session:', err.message);
+  const session = getDb().prepare('SELECT user_id FROM sessions WHERE id = 1').get();
+  if (!session) return null;
+
+  const user = getUserById(session.user_id);
+  if (!user) {
+    clearSession();
     return null;
   }
+
+  return user;
 }
 
 function clearSession() {
-  const filePath = getFilePath(SESSION_FILE);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-  }
+  getDb().prepare('DELETE FROM sessions').run();
   console.log('[userService] Session cleared');
 }
 
