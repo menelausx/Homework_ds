@@ -1563,16 +1563,20 @@ body {
 }
 
 .ntsb-map-panel {
-  min-height: 380px;
+  min-height: 440px;
   isolation: isolate;
   contain: paint;
+}
+
+.ntsb-aircraft-panel {
+  min-height: 440px;
 }
 
 #ntsb-map {
   position: relative;
   z-index: 0;
   flex: 1;
-  min-height: 330px;
+  min-height: 390px;
   overflow: hidden;
   background: var(--bg-primary);
 }
