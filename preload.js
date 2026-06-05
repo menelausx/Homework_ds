@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   parseDataSource: (sourceId) => ipcRenderer.invoke('dataSources:parse', sourceId),
   importDataSource: (sourceId) => ipcRenderer.invoke('dataSources:import', sourceId),
   updateAllDataSource: (sourceId) => ipcRenderer.invoke('dataSources:updateAll', sourceId),
+  cleanDataSourceCache: () => ipcRenderer.invoke('dataSources:cleanCache'),
 
   // ── Shell ──────────────────────────────────────────────────────────────────
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),

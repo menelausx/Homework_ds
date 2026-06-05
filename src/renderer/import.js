@@ -237,6 +237,22 @@ var ImportModule = (function () {
     await refreshSources();
   }
 
+  async function doCleanCache() {
+    showLoading('正在清理缓存...');
+    try {
+      var result = await window.electronAPI.cleanDataSourceCache();
+      if (result.success) {
+        showNotification('cache', '已清理缓存：' + result.deletedCount + ' 项');
+      } else {
+        showNotification('cache', '清理缓存失败：' + (result.error || '未知错误'));
+      }
+    } catch (err) {
+      showNotification('cache', '清理缓存失败：' + err.message);
+    }
+    hideLoading();
+    await refreshSources();
+  }
+
   // ── Card state helpers ──────────────────────────────────────────────────
 
   function setCardPhase(sourceId, phase) {
@@ -337,6 +353,13 @@ var ImportModule = (function () {
   if (btnRefresh) {
     btnRefresh.addEventListener('click', function () {
       refreshSources();
+    });
+  }
+
+  var btnCleanCache = document.getElementById('btn-import-clean-cache');
+  if (btnCleanCache) {
+    btnCleanCache.addEventListener('click', function () {
+      doCleanCache();
     });
   }
 

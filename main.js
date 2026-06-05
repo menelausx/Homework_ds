@@ -4,6 +4,7 @@ const userService = require('./src/main/userService');
 const dataSourceService = require('./src/main/dataSourceService');
 const databaseService = require('./src/main/databaseService');
 const analysisService = require('./src/main/analysisService');
+const cacheService = require('./src/main/cacheService');
 
 let mainWindow = null;
 let defaultAdminCreated = false;
@@ -207,6 +208,17 @@ function setupDataSourceIpcHandlers() {
     } catch (error) {
       console.error('[dataSources] UpdateAll error:', error.message);
       return { success: false, error: error.message, phases: ['failed'] };
+    }
+  });
+
+  ipcMain.handle('dataSources:cleanCache', async () => {
+    try {
+      const result = cacheService.cleanRawDataCache();
+      console.log('[dataSources] Clean cache: deleted ' + result.deletedCount + ' item(s)');
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Clean cache error:', error.message);
+      return { success: false, error: error.message };
     }
   });
 }
