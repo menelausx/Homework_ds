@@ -60,16 +60,16 @@
 
     <!-- Tab Bar -->
     <div class="tab-bar">
-      <div class="tab active" data-tab="faa-opensky" id="tab-faa-opensky">
-        <span class="tab-icon">&#9992;</span>
-        FAA/OpenSky 分析
-      </div>
-      <div class="tab" data-tab="ntsb" id="tab-ntsb">
+      <div class="tab active" data-tab="ntsb" id="tab-ntsb">
         <span class="tab-icon">N</span>
         NTSB 事故趋势分析
       </div>
+      <div class="tab" data-tab="faa-opensky" id="tab-faa-opensky">
+        <span class="tab-icon">&#9992;</span>
+        FAA/OpenSky 分析
+      </div>
       <div class="tab" data-tab="import" id="tab-import">
-        <span class="tab-icon">&#128230;</span>
+        <span class="tab-icon">D</span>
         数据采集入库
       </div>
       <div class="tab" data-tab="admin" id="tab-admin">
@@ -86,7 +86,7 @@
     </div>
 
     <!-- ── FAA/OpenSky Module ────────────────────────────────────────── -->
-    <div class="module-content" id="module-faa-opensky">
+    <div class="module-content" id="module-faa-opensky" style="display:none;">
       <!-- Toolbar -->
       <div class="toolbar">
         <button class="toolbar-btn primary" id="btn-refresh-analysis" title="从数据库重新加载分析数据">
@@ -204,7 +204,7 @@
     </div>
 
     <!-- ── NTSB Accident Trend Analysis Module ──────────────────────── -->
-    <div class="module-content" id="module-ntsb" style="display:none;">
+    <div class="module-content" id="module-ntsb">
       <div class="ntsb-container">
         <div class="ntsb-toolbar">
           <div class="ntsb-toolbar-title">
