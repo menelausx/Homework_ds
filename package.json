@@ -13,7 +13,8 @@
   "dependencies": {
     "adm-zip": "^0.5.16",
     "bcryptjs": "^2.4.3",
-    "better-sqlite3": "^12.10.0"
+    "better-sqlite3": "^12.10.0",
+    "mdb-reader": "^3.2.0"
   },
   "devDependencies": {
     "electron": "^33.0.0",

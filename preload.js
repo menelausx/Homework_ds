@@ -14,21 +14,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteUser: (id) => ipcRenderer.invoke('users:delete', id),
   resetUserPassword: (id, newPassword) => ipcRenderer.invoke('users:resetPassword', id, newPassword),
 
-  // ── FAA ───────────────────────────────────────────────────────────────────
-  getFaaStats: () => ipcRenderer.invoke('faa:get-stats'),
-  getFaaInfo: (icao24) => ipcRenderer.invoke('faa:get-info', icao24),
-  getFaaInfoBulk: (icao24List) => ipcRenderer.invoke('faa:get-info-bulk', icao24List),
-  refreshFaa: () => ipcRenderer.invoke('faa:refresh'),
+  // ── Analysis (SQLite-backed, read-only) ──────────────────────────────────
+  getFlights: () => ipcRenderer.invoke('analysis:getFlights'),
+  getFlight: (icao24) => ipcRenderer.invoke('analysis:getFlight', icao24),
+  getStatistics: () => ipcRenderer.invoke('analysis:getStatistics'),
+  getFaaInfo: (icao24) => ipcRenderer.invoke('analysis:getFaaInfo', icao24),
+  getFaaInfoBulk: (icao24List) => ipcRenderer.invoke('analysis:getFaaInfoBulk', icao24List),
 
-  // ── OpenSky ───────────────────────────────────────────────────────────────
-  getFlightData: () => ipcRenderer.invoke('opensky:get-flights'),
-  refreshFlights: () => ipcRenderer.invoke('opensky:refresh'),
+  // ── NTSB Accident Trend Analysis (aggregate SQLite queries) ─────────────
+  getNtsbFilterOptions: () => ipcRenderer.invoke('ntsb:getFilterOptions'),
+  getNtsbOverview: (filters) => ipcRenderer.invoke('ntsb:getOverview', filters),
+  getNtsbYearlyTrend: (filters) => ipcRenderer.invoke('ntsb:getYearlyTrend', filters),
+  getNtsbSeverityDistribution: (filters) => ipcRenderer.invoke('ntsb:getSeverityDistribution', filters),
+  getNtsbGeoAggregation: (filters) => ipcRenderer.invoke('ntsb:getGeoAggregation', filters),
+  getNtsbAircraftBreakdown: (filters) => ipcRenderer.invoke('ntsb:getAircraftBreakdown', filters),
+  getNtsbWeatherBreakdown: (filters) => ipcRenderer.invoke('ntsb:getWeatherBreakdown', filters),
+  getNtsbFindingBreakdown: (filters) => ipcRenderer.invoke('ntsb:getFindingBreakdown', filters),
 
-  // ── Event listeners from main process ─────────────────────────────────────
-  onFaaReady: (callback) => {
-    ipcRenderer.on('faa:ready', (_event, stats) => callback(stats));
-  },
-  onFaaError: (callback) => {
-    ipcRenderer.on('faa:error', (_event, error) => callback(error));
-  },
+  // ── Data Source Import ──────────────────────────────────────────────────
+  listDataSources: () => ipcRenderer.invoke('dataSources:list'),
+  getDataSourceStatus: (sourceId) => ipcRenderer.invoke('dataSources:status', sourceId),
+  downloadDataSource: (sourceId) => ipcRenderer.invoke('dataSources:download', sourceId),
+  parseDataSource: (sourceId) => ipcRenderer.invoke('dataSources:parse', sourceId),
+  importDataSource: (sourceId) => ipcRenderer.invoke('dataSources:import', sourceId),
+  updateAllDataSource: (sourceId) => ipcRenderer.invoke('dataSources:updateAll', sourceId),
+  cleanDataSourceCache: () => ipcRenderer.invoke('dataSources:cleanCache'),
+
+  // ── Shell ──────────────────────────────────────────────────────────────────
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 });

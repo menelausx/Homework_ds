@@ -93,4 +93,4 @@ async function refresh() {
   return processed;
 }
 
-module.exports = { getCachedFlights, refresh };
+module.exports = { getCachedFlights, refresh, fetchOpenSkyData, convertStatesToObjects };

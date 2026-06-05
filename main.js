@@ -1,8 +1,11 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
-const faaService = require('./src/main/faaService');
-const openskyService = require('./src/main/openskyService');
 const userService = require('./src/main/userService');
+const dataSourceService = require('./src/main/dataSourceService');
+const databaseService = require('./src/main/databaseService');
+const analysisService = require('./src/main/analysisService');
+const ntsbAnalysisService = require('./src/main/ntsbAnalysisService');
+const cacheService = require('./src/main/cacheService');
 
 let mainWindow = null;
 let defaultAdminCreated = false;
@@ -144,50 +147,225 @@ function setupUsersIpcHandlers() {
   });
 }
 
-// ── FAA handlers ────────────────────────────────────────────────────────────
+// ── Data Source Import IPC handlers ─────────────────────────────────────────
 
-function setupFaaIpcHandlers() {
-  ipcMain.handle('faa:get-stats', async () => {
-    return faaService.getStats();
-  });
-
-  ipcMain.handle('faa:get-info', async (_event, icao24) => {
-    if (!icao24) return null;
-    return faaService.getAircraftInfo(icao24);
-  });
-
-  ipcMain.handle('faa:get-info-bulk', async (_event, icao24List) => {
-    const result = {};
-    for (const icao24 of icao24List) {
-      const info = faaService.getAircraftInfo(icao24);
-      if (info) result[icao24] = info;
-    }
-    return result;
-  });
-
-  ipcMain.handle('faa:refresh', async () => {
+function setupDataSourceIpcHandlers() {
+  ipcMain.handle('dataSources:list', async () => {
     try {
-      const result = await faaService.refresh();
-      return { success: true, recordCount: result.recordCount };
+      return dataSourceService.listSources();
     } catch (error) {
+      console.error('[dataSources] List error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('dataSources:status', async (_event, sourceId) => {
+    try {
+      return dataSourceService.getStatus(sourceId);
+    } catch (error) {
+      console.error('[dataSources] Status error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:download', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.download(sourceId);
+      console.log('[dataSources] Download ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Download error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:parse', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.parse(sourceId);
+      console.log('[dataSources] Parse ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Parse error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:import', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.importToDb(sourceId);
+      console.log('[dataSources] Import ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Import error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('dataSources:updateAll', async (_event, sourceId) => {
+    try {
+      const result = await dataSourceService.updateAll(sourceId);
+      console.log('[dataSources] UpdateAll ' + sourceId + ': ' + (result.success ? 'ok' : 'failed - ' + result.error));
+      return result;
+    } catch (error) {
+      console.error('[dataSources] UpdateAll error:', error.message);
+      return { success: false, error: error.message, phases: ['failed'] };
+    }
+  });
+
+  ipcMain.handle('dataSources:cleanCache', async () => {
+    try {
+      const result = cacheService.cleanRawDataCache();
+      console.log('[dataSources] Clean cache: deleted ' + result.deletedCount + ' item(s)');
+      return result;
+    } catch (error) {
+      console.error('[dataSources] Clean cache error:', error.message);
       return { success: false, error: error.message };
     }
   });
 }
 
-// ── OpenSky handlers ────────────────────────────────────────────────────────
+// ── Shell IPC handlers ──────────────────────────────────────────────────────
 
-function setupOpenskyIpcHandlers() {
-  ipcMain.handle('opensky:get-flights', async () => {
-    return openskyService.getCachedFlights();
+function setupShellIpcHandlers() {
+  ipcMain.handle('shell:openExternal', async (_event, url) => {
+    try {
+      if (!url || typeof url !== 'string') {
+        return { success: false, error: 'Invalid URL' };
+      }
+      // Only allow http/https URLs
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        return { success: false, error: 'Only http/https URLs are allowed' };
+      }
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error) {
+      console.error('[shell] openExternal error:', error.message);
+      return { success: false, error: error.message };
+    }
+  });
+}
+
+// ── Analysis IPC handlers (SQLite-backed, no external API calls) ────────────
+
+function setupAnalysisIpcHandlers() {
+  ipcMain.handle('analysis:getFlights', async () => {
+    try {
+      return analysisService.getFlights();
+    } catch (error) {
+      console.error('[analysis] getFlights error:', error.message);
+      return { time: 0, cacheTime: null, states: [], snapshotTime: null };
+    }
   });
 
-  ipcMain.handle('opensky:refresh', async () => {
+  ipcMain.handle('analysis:getFlight', async (_event, icao24) => {
     try {
-      const result = await openskyService.refresh();
-      return { success: true, flightCount: result.states.length, cacheTime: result.cacheTime };
+      return analysisService.getFlight(icao24);
     } catch (error) {
-      return { success: false, error: error.message };
+      console.error('[analysis] getFlight error:', error.message);
+      return null;
+    }
+  });
+
+  ipcMain.handle('analysis:getStatistics', async () => {
+    try {
+      return analysisService.getStatistics();
+    } catch (error) {
+      console.error('[analysis] getStatistics error:', error.message);
+      return { flightCount: 0, faaMatched: 0, faaTotalRecords: 0, faaLoaded: false, faaError: error.message, snapshotTime: null };
+    }
+  });
+
+  ipcMain.handle('analysis:getFaaInfo', async (_event, icao24) => {
+    try {
+      return analysisService.getFaaInfo(icao24);
+    } catch (error) {
+      console.error('[analysis] getFaaInfo error:', error.message);
+      return null;
+    }
+  });
+
+  ipcMain.handle('analysis:getFaaInfoBulk', async (_event, icao24List) => {
+    try {
+      return analysisService.getFaaInfoBulk(icao24List);
+    } catch (error) {
+      console.error('[analysis] getFaaInfoBulk error:', error.message);
+      return {};
+    }
+  });
+}
+
+// ── NTSB Analysis IPC handlers (aggregate SQLite queries) ─────────────────
+
+function setupNtsbAnalysisIpcHandlers() {
+  ipcMain.handle('ntsb:getFilterOptions', async () => {
+    try {
+      return ntsbAnalysisService.getFilterOptions();
+    } catch (error) {
+      console.error('[ntsb] getFilterOptions error:', error.message);
+      return { years: { min: null, max: null }, countries: [], states: [], severities: [], aircraftCategories: [], damages: [] };
+    }
+  });
+
+  ipcMain.handle('ntsb:getOverview', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getOverview(filters);
+    } catch (error) {
+      console.error('[ntsb] getOverview error:', error.message);
+      return { totalEvents: 0, fatalEvents: 0, fatalRate: 0, aircraftCount: 0, geoEventCount: 0, narrativeEventCount: 0, topRegion: null };
+    }
+  });
+
+  ipcMain.handle('ntsb:getYearlyTrend', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getYearlyTrend(filters);
+    } catch (error) {
+      console.error('[ntsb] getYearlyTrend error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ntsb:getSeverityDistribution', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getSeverityDistribution(filters);
+    } catch (error) {
+      console.error('[ntsb] getSeverityDistribution error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ntsb:getGeoAggregation', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getGeoAggregation(filters);
+    } catch (error) {
+      console.error('[ntsb] getGeoAggregation error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ntsb:getAircraftBreakdown', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getAircraftBreakdown(filters);
+    } catch (error) {
+      console.error('[ntsb] getAircraftBreakdown error:', error.message);
+      return { categories: [], makes: [], models: [], damages: [], ageBuckets: [] };
+    }
+  });
+
+  ipcMain.handle('ntsb:getWeatherBreakdown', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getWeatherBreakdown(filters);
+    } catch (error) {
+      console.error('[ntsb] getWeatherBreakdown error:', error.message);
+      return { light: [], conditions: [], visibility: [], wind: [] };
+    }
+  });
+
+  ipcMain.handle('ntsb:getFindingBreakdown', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getFindingBreakdown(filters);
+    } catch (error) {
+      console.error('[ntsb] getFindingBreakdown error:', error.message);
+      return { categories: [], topFindings: [], severityMatrix: [] };
     }
   });
 }
@@ -208,23 +386,14 @@ app.whenReady().then(() => {
   // 3. Register all IPC handlers
   setupAuthIpcHandlers();
   setupUsersIpcHandlers();
-  setupFaaIpcHandlers();
-  setupOpenskyIpcHandlers();
+  setupDataSourceIpcHandlers();
+  setupShellIpcHandlers();
+  setupAnalysisIpcHandlers();
+  setupNtsbAnalysisIpcHandlers();
 
-  // 4. Load FAA database in background, notify renderer when done
-  faaService
-    .initialize()
-    .then(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('faa:ready', faaService.getStats());
-      }
-    })
-    .catch((err) => {
-      console.error('FAA initialization error:', err);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('faa:error', err.message);
-      }
-    });
+  // 4. App is ready — no background FAA loading needed.
+  //    Analysis page reads from SQLite via analysis: IPC channels.
+  //    Use the "数据采集入库" page to download/import data first.
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -235,5 +404,6 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   userService.closeDatabase();
+  databaseService.closeDatabase();
   app.quit();
 });
