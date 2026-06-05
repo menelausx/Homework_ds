@@ -251,9 +251,11 @@ function tableExists(db, tableName) {
 function getStatus() {
   const db = databaseService.getDb();
   const statusTableName = 'ntsb_events';
-  const recordCount = tableExists(db, statusTableName)
-    ? db.prepare('SELECT COUNT(*) AS count FROM ' + quoteIdentifier(statusTableName)).get().count || 0
-    : 0;
+  const recordCount = TARGET_TABLES.reduce(function (total, sourceTableName) {
+    const tableName = TABLE_NAME_MAP[sourceTableName];
+    if (!tableExists(db, tableName)) return total;
+    return total + (db.prepare('SELECT COUNT(*) AS count FROM ' + quoteIdentifier(tableName)).get().count || 0);
+  }, 0);
 
   const zipPath = getZipPath();
   const lastDownload = fs.existsSync(zipPath)
