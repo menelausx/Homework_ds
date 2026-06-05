@@ -13,6 +13,7 @@ var NtsbModule = (function () {
     loading: false,
     pendingLoad: false,
     lastFiltersKey: '',
+    acftMake: '',
   };
 
   var COLORS = {
@@ -114,6 +115,7 @@ var NtsbModule = (function () {
       state: els.state ? els.state.value : '',
       severity: els.severity ? els.severity.value : '',
       acftCategory: els.acftCategory ? els.acftCategory.value : '',
+      acftMake: state.acftMake,
       damage: els.damage ? els.damage.value : '',
     };
   }
@@ -417,7 +419,10 @@ var NtsbModule = (function () {
         scheduleLoad();
       }
     });
-    renderCompactList(els.makeList, data.makes || []);
+    renderCompactList(els.makeList, data.makes || [], function (row) {
+      state.acftMake = row.label === 'UNKNOWN' ? '' : row.label;
+      scheduleLoad();
+    });
   }
 
   function renderCompactList(container, rows, onClick) {
@@ -509,6 +514,7 @@ var NtsbModule = (function () {
   function resetFilters() {
     if (els.yearFrom) els.yearFrom.value = optionYears.min || '';
     if (els.yearTo) els.yearTo.value = optionYears.max || '';
+    state.acftMake = '';
     [els.country, els.state, els.severity, els.acftCategory, els.damage].forEach(function (select) {
       if (select) select.value = '';
     });

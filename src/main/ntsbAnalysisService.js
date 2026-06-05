@@ -38,7 +38,7 @@ function normalizeFilters(filters) {
   if (!Number.isNaN(yearFrom)) normalized.yearFrom = yearFrom;
   if (!Number.isNaN(yearTo)) normalized.yearTo = yearTo;
 
-  ['country', 'state', 'severity', 'acftCategory', 'damage'].forEach(function (key) {
+  ['country', 'state', 'severity', 'acftCategory', 'acftMake', 'damage'].forEach(function (key) {
     if (filters[key] != null && String(filters[key]).trim() !== '') {
       normalized[key] = String(filters[key]).trim();
     }
@@ -76,6 +76,10 @@ function buildFilteredEventsCte(filters) {
   if (f.acftCategory) {
     aircraftWhere.push('TRIM(COALESCE(a.acft_category, \'\')) = @acftCategory');
     params.acftCategory = f.acftCategory;
+  }
+  if (f.acftMake) {
+    aircraftWhere.push('UPPER(TRIM(COALESCE(a.acft_make, \'\'))) = @acftMake');
+    params.acftMake = f.acftMake.toUpperCase();
   }
   if (f.damage) {
     aircraftWhere.push('TRIM(COALESCE(a.damage, \'\')) = @damage');
