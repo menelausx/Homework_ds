@@ -3,7 +3,7 @@ const path = require('path');
 const { app } = require('electron');
 
 function getDataDir() {
-  if (app.isPackaged) {
+  if (app && app.isPackaged) {
     return path.join(path.dirname(app.getPath('exe')), 'data');
   }
   return path.join(__dirname, '..', '..', 'data');

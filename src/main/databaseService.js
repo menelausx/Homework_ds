@@ -8,7 +8,7 @@ const DB_FILE = 'app.db';
 let db = null;
 
 function getDataDir() {
-  if (app.isPackaged) {
+  if (app && app.isPackaged) {
     return path.join(path.dirname(app.getPath('exe')), 'data');
   }
   return path.join(__dirname, '..', '..', 'data');

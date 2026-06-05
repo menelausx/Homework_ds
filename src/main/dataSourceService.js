@@ -3,11 +3,13 @@
 
 const openskyDataSource = require('./openskyDataSource');
 const faaDataSource = require('./faaDataSource');
+const ntsbDataSource = require('./ntsbDataSource');
 
 // Registry: sourceId -> data source module
 const registry = new Map();
 registry.set(openskyDataSource.sourceId, openskyDataSource);
 registry.set(faaDataSource.sourceId, faaDataSource);
+registry.set(ntsbDataSource.sourceId, ntsbDataSource);
 
 // Track in-memory errors per source (cleared on next successful operation)
 const sourceErrors = new Map();

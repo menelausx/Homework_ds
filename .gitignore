@@ -8,3 +8,4 @@ data/
 flight.svg
 *.mp4
 临时文件/
+tmp/
