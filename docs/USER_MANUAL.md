@@ -27,13 +27,11 @@
 
 ## 1. 项目简介
 
-**数据安全动态采集系统** 是一款桌面应用程序，主要用于航空数据的采集、存储、分析和可视化展示。
+**数据安全动态采集系统** 是一款桌面应用程序，主要用于航空数据的采集、存储、分析和可视化展示与情报分析。
 
-本系统适合以下用户使用：
-
-- 航空安全研究人员：通过 NTSB 事故趋势分析了解航空事故的分布、趋势和原因分类。
-- 航空数据爱好者：查看全球实时航班分布，并匹配美国 FAA 飞机的注册信息。
-- 数据分析学习者：了解如何从多个外部数据源下载、解析、入库数据，并在统一界面中进行聚合分析。
+> **开源地址**：[https://github.com/menelausx/Homework_ds](https://github.com/menelausx/Homework_ds)
+>
+> **发布地址**：[https://github.com/menelausx/Homework_ds/releases/latest](https://github.com/menelausx/Homework_ds/releases/latest)
 
 系统的主要功能包括：
 
@@ -42,7 +40,7 @@
 - **数据采集**：从 OpenSky、FAA、NTSB 三个数据源下载、解析、导入数据到本地数据库。
 - **用户管理**：支持多用户账号的创建、编辑、密码管理和删除。
 
-[图片：系统主界面概览]
+![image-20260605200242004](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200242004.png)
 
 ---
 
@@ -61,8 +59,8 @@
 
 ### 其他说明
 
-- 本系统**不需要**安装额外的数据库软件。所有数据存储在程序自带的 SQLite 数据库文件中（`data/app.db`）。
-- 本系统**不需要**安装 pandoc 或其他文档转换工具。
+- 本系统不需要安装额外的数据库软件。所有数据存储在程序自带的 SQLite 数据库文件中（`data/app.db`）。
+- 本系统不需要安装 pandoc 或其他文档转换工具。
 - 地图功能依赖 OpenStreetMap 瓦片服务，需要能够访问 `tile.openstreetmap.org`。
 
 ---
@@ -71,7 +69,7 @@
 
 ### 方式一：使用打包后的可执行程序（推荐）
 
-1. 获取 `数据安全动态采集系统.exe` 文件。
+1. 从 [GitHub Releases](https://github.com/menelausx/Homework_ds/releases/latest) 页面下载最新版本的 `数据安全动态采集系统.exe` 文件。
 2. 双击运行即可。程序首次启动时会自动在程序所在目录创建 `data/` 文件夹用于存储数据。
 
 ### 方式二：从源码运行
@@ -80,7 +78,14 @@
 
 1. **克隆或解压项目**
 
-   将项目文件放置到本地目录。
+   从 GitHub 克隆项目源码：
+
+   ```bash
+   git clone https://github.com/menelausx/Homework_ds.git
+   cd Homework_ds
+   ```
+
+   或者直接下载并解压源码压缩包，将项目文件放置到本地目录。
 
 2. **安装依赖**
 
@@ -139,7 +144,7 @@ npm run build
 
 在 FAA/OpenSky 分析页面中，底部有一个详情栏，点击地图上的航班后会显示该航班的详细数据。
 
-[图片：主界面结构示意图]
+![image-20260605200351256](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200351256.png)
 
 ---
 
@@ -180,6 +185,8 @@ npm run build
 - 密码使用 bcrypt 加密存储，不会以明文形式保存。
 - 系统同一时间只支持一个会话（即一台电脑上只能有一个用户处于登录状态）。
 
+![image-20260605200543289](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200543289.png)
+
 ---
 
 ### 5.2 数据采集入库
@@ -207,7 +214,7 @@ npm run build
    - **"入库"** —— 将解析后的数据写入本地 SQLite 数据库。
 3. 观察卡片上的状态变化：正在操作时按钮会禁用，操作完成后状态信息会更新。
 
-**一键更新（推荐）：**
+**一键更新：**
 
 1. 切换到 **"数据采集入库"** 标签页。
 2. 在目标数据源卡片上，直接点击 **"一键更新"** 按钮。
@@ -230,6 +237,8 @@ npm run build
 - 每次入库会**清空对应数据表中已有的全部数据**，然后写入新数据，因此不会产生重复记录。
 - 如果某个步骤失败，请检查卡片上的错误提示，常见原因包括：网络连接失败、磁盘空间不足、原始数据文件未下载。
 - 您无需每次使用都重新导入数据。如果只是想查看已有数据，可以跳过此页面，直接在分析页面点击"刷新分析数据"。
+
+![image-20260605200608497](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200608497.png)
 
 ---
 
@@ -304,6 +313,8 @@ npm run build
 - 并非所有航班都能匹配 FAA 信息。FAA 数据库仅包含在美国注册的飞机，因此美国以外的飞机通常无法匹配。
 - 匹配依据是航班的 **icao24**（Mode S 24 位地址）与 FAA 数据库中的 **MODE S CODE HEX** 进行比对。
 - 航班数据是某一时刻的**快照**，不是实时更新的。快照时间显示在工具栏上。
+
+![image-20260605200624752](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200624752.png)
 
 ---
 
@@ -380,6 +391,8 @@ npm run build
 - NTSB 数据来源于美国 NTSB 公开数据库，以美国境内事故为主，但也包含部分国际合作调查数据。
 - 数据更新频率取决于 NTSB 官方发布周期，通常每年更新一次。
 
+![image-20260605200651716](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200651716.png)
+
 ---
 
 ### 5.5 系统管理（用户管理）
@@ -432,6 +445,8 @@ npm run build
 - 密码使用 bcrypt 加密存储，即使是管理员也无法查看其他用户的明文密码。
 - 关闭任意弹窗可以按 **Esc** 键，或点击弹窗外的灰色遮罩区域。
 
+![image-20260605200703212](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200703212.png)
+
 ---
 
 ### 5.6 清理缓存
@@ -444,12 +459,13 @@ npm run build
 
 1. 切换到 **"数据采集入库"** 标签页。
 2. 点击工具栏右上角的 **"清理缓存"** 按钮。
-3. 系统会显示清理了多少个缓存项。
 
 #### 注意事项
 
 - 清理缓存后，如果再次使用"下载"功能，系统会重新从网络获取数据文件。
-- 清理缓存**不会**影响已入库的数据库数据，分析功能可正常使用。
+- 清理缓存不会影响已入库的数据库数据，分析功能可正常使用。
+
+![image-20260605200608497](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200608497.png)
 
 ---
 
@@ -626,7 +642,7 @@ npm run build
 2. 对 OpenSky 数据源执行"一键更新"。
 3. 切换回"FAA/OpenSky 分析"页面，点击"刷新分析数据"。
 
-系统设计上不支持自动刷新，所有数据更新需要用户手动触发。
+为符合上游开源项目要求，系统设计上不支持自动刷新，所有数据更新需要用户手动触发。
 
 ---
 
@@ -810,7 +826,17 @@ npm run build
 
 ### D. 版本更新记录
 
-版本更新记录请查看 Git 提交历史（`git log`）或项目中的版本发布说明。当前版本为 **1.0.0**。
+版本更新记录请查看 [GitHub Releases](https://github.com/menelausx/Homework_ds/releases) 页面或 Git 提交历史（`git log`）。当前版本为 **1.0.0**。
+
+### E. 相关链接
+
+| 链接 | 地址 |
+| ---- | ---- |
+| 开源仓库 | [https://github.com/menelausx/Homework_ds](https://github.com/menelausx/Homework_ds) |
+| 发布下载 | [https://github.com/menelausx/Homework_ds/releases/latest](https://github.com/menelausx/Homework_ds/releases/latest) |
+| OpenSky Network | [https://opensky-network.org](https://opensky-network.org) |
+| FAA Registry | [https://registry.faa.gov](https://registry.faa.gov) |
+| NTSB Aviation Data | [https://data.ntsb.gov/avdata/](https://data.ntsb.gov/avdata/) |
 
 ---
 
@@ -818,4 +844,4 @@ npm run build
 >
 > **最后更新**：2026 年 6 月
 >
-> 如有疑问或建议，请联系项目维护者。
+> 如有疑问或建议，请在 [GitHub Issues](https://github.com/menelausx/Homework_ds/issues) 中反馈。

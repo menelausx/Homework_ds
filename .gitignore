@@ -9,3 +9,5 @@ data/
 临时文件/
 tmp/
 *开发需求.md
+/docs/*.pdf
+/docs/*.doc*
