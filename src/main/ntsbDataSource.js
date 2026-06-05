@@ -289,4 +289,5 @@ module.exports = {
   importToDatabase,
   updateAll,
   getStatus,
+  getCacheFiles: function () { return [ZIP_FILENAME]; },
 };

@@ -202,4 +202,5 @@ module.exports = {
   importToDatabase,
   updateAll,
   getStatus,
+  getCacheFiles: function () { return [RAW_CACHE_FILE]; },
 };

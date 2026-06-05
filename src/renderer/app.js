@@ -15,7 +15,7 @@ var AppModule = (function () {
   var moduleImport = document.getElementById('module-import');
   var moduleAdmin = document.getElementById('module-admin');
 
-  var activeTab = 'faa-opensky';
+  var activeTab = 'ntsb';
 
   function switchTab(tabName) {
     if (activeTab === tabName) return;
@@ -101,8 +101,8 @@ var AppModule = (function () {
 
   function onLogout() {
     console.log('App: user logged out');
-    // Return to FAA/OpenSky tab
-    switchTab('faa-opensky');
+    // Return to NTSB tab
+    switchTab('ntsb');
   }
 
   // ── Status helper (used by AdminModule for error notifications) ─────────

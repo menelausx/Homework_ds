@@ -1,9 +1,11 @@
 // Central registry for all data sources.
-// Each data source must export: sourceId, name, description, url, download(), parse(), importToDatabase(), updateAll(), getStatus()
+// Each data source must export: sourceId, name, description, url, download(), parse(), importToDatabase(), updateAll(), getStatus(), getCacheFiles()
 
+const fs = require('fs');
 const openskyDataSource = require('./openskyDataSource');
 const faaDataSource = require('./faaDataSource');
 const ntsbDataSource = require('./ntsbDataSource');
+const cacheService = require('./cacheService');
 
 // Registry: sourceId -> data source module
 const registry = new Map();
@@ -54,6 +56,25 @@ function wrapAction(sourceId, actionName, actionFn) {
   };
 }
 
+function cleanCacheForSource(sourceId) {
+  const ds = registry.get(sourceId);
+  if (!ds || !ds.getCacheFiles) return;
+  const cacheFiles = ds.getCacheFiles();
+  if (!cacheFiles || cacheFiles.length === 0) return;
+
+  for (let i = 0; i < cacheFiles.length; i++) {
+    try {
+      const cachePath = cacheService.getDataFilePath(cacheFiles[i]);
+      if (fs.existsSync(cachePath)) {
+        fs.unlinkSync(cachePath);
+        console.log('[dataSourceService] Cleaned cache for ' + sourceId + ': ' + cachePath);
+      }
+    } catch (err) {
+      console.warn('[dataSourceService] Failed to clean cache for ' + sourceId + ': ' + cacheFiles[i] + ' - ' + err.message);
+    }
+  }
+}
+
 function wrapUpdateAll(sourceId, ds) {
   return async function () {
     sourceErrors.delete(sourceId);
@@ -63,6 +84,8 @@ function wrapUpdateAll(sourceId, ds) {
       sourcePhases.delete(sourceId);
       if (!result.success) {
         sourceErrors.set(sourceId, result.error);
+      } else {
+        cleanCacheForSource(sourceId);
       }
       return result;
     } catch (err) {
@@ -95,7 +118,13 @@ function importToDb(sourceId) {
   if (!ds) {
     return Promise.resolve({ success: false, error: 'Unknown source: ' + sourceId });
   }
-  return wrapAction(sourceId, 'importing', function () { return ds.importToDatabase(); })();
+  return wrapAction(sourceId, 'importing', async function () {
+    const result = await ds.importToDatabase();
+    if (result.success) {
+      cleanCacheForSource(sourceId);
+    }
+    return result;
+  })();
 }
 
 function updateAll(sourceId) {
