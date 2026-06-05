@@ -26,7 +26,9 @@ Main Process
   src/main/dataSourceService.js    ← 数据源注册与调度
   src/main/openskyDataSource.js    ← OpenSky 数据源（下载/解析/入库）
   src/main/faaDataSource.js        ← FAA 数据源（下载/解析/入库）
+  src/main/ntsbDataSource.js       ← NTSB 数据源（下载/解析/入库）
   src/main/analysisService.js      ← SQLite 分析查询服务
+  src/main/ntsbAnalysisService.js  ← NTSB 聚合分析查询服务
   src/main/faaService.js           ← FAA 解析工具（被 faaDataSource 复用）
   src/main/openskyService.js       ← OpenSky API 工具（被 openskyDataSource 复用）
 ```
@@ -48,7 +50,7 @@ Main Process
 3. 如果用户表为空，创建默认账号 `admin / admin123`
 4. 如果创建了默认账号，清空 session，防止自动登录
 5. `createWindow()`
-6. 注册 Auth、Users、Analysis、DataSources、Shell IPC
+6. 注册 Auth、Users、Analysis、NTSB Analysis、DataSources、Shell IPC
 7. 应用就绪（不再后台加载 FAA 文件；分析页面从 SQLite 读取数据）
 
 渲染端脚本加载顺序很重要：
@@ -57,19 +59,21 @@ Main Process
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="admin.js"></script>
 <script src="import.js"></script>
+<script src="ntsb.js"></script>
 <script src="app.js"></script>
 <script src="login.js"></script>
 ```
 
-`login.js` 必须在 `app.js` 之后加载。保持登录恢复成功时，它会调用 `AppModule.onLogin()`，进而初始化 `FaaOpenskyModule`。
+`login.js` 必须在 `app.js` 之后加载。保持登录恢复成功时，它会调用 `AppModule.onLogin()`，进而初始化 `FaaOpenskyModule` 和 `NtsbModule`。
 
 ## 标签页结构
 
-当前共三个标签页，按顺序：
+当前共四个标签页，按顺序：
 
 1. **FAA/OpenSky 分析** (`faa-opensky`) — 地图、航班图层、FAA 匹配、详情面板
-2. **数据采集入库** (`import`) — 卡片式数据源列表，下载/解析/入库/一键更新
-3. **系统管理** (`admin`) — 用户管理
+2. **NTSB 事故趋势分析** (`ntsb`) — KPI、年度趋势、严重度、事故空间聚合、飞机画像、天气、原因分类
+3. **数据采集入库** (`import`) — 卡片式数据源列表，下载/解析/入库/一键更新
+4. **系统管理** (`admin`) — 用户管理
 
 标签切换由 `AppModule.switchTab()` 统一管理。每个标签页激活时调用对应模块的 `onActivate()` 方法。
 
@@ -189,6 +193,33 @@ Analysis（FAA/OpenSky 分析页面，SQLite 只读查询）：
 
 > **所有分析数据来自 SQLite，无网络请求、无文件回退。**
 
+NTSB Analysis（NTSB 事故趋势分析页面，SQLite 聚合查询）：
+
+| 通道 | 参数 | 返回 |
+| --- | --- | --- |
+| `ntsb:getFilterOptions` | - | 年份、国家、州/地区、严重度、飞机类别、损坏程度选项 |
+| `ntsb:getOverview` | `filters` | KPI 总览：总事故、致命事故、致命占比、涉事飞机、有坐标、有叙述、高发地区 |
+| `ntsb:getYearlyTrend` | `filters` | 年度事故总量、致命事故、严重度结构 |
+| `ntsb:getSeverityDistribution` | `filters` | 最高伤害等级分布 |
+| `ntsb:getGeoAggregation` | `filters` | 经纬度网格聚合点，含事故数和致命事故数 |
+| `ntsb:getAircraftBreakdown` | `filters` | 飞机类别、制造商、机型、损坏程度、机龄区间聚合 |
+| `ntsb:getWeatherBreakdown` | `filters` | 光照、天气、能见度、风速分布 |
+| `ntsb:getFindingBreakdown` | `filters` | 原因发现关键词分类、Top findings、严重度矩阵 |
+
+`filters` 支持：
+
+```js
+{
+  yearFrom,
+  yearTo,
+  country,
+  state,
+  severity,
+  acftCategory,
+  damage
+}
+```
+
 Data Sources（数据采集入库）：
 
 | 通道 | 参数 | 返回 |
@@ -203,6 +234,7 @@ Data Sources（数据采集入库）：
 其中 `sourceId` 取值：
 - `opensky_states` — OpenSky 全量航班状态数据
 - `faa_aircraft` — FAA 注册飞机数据库
+- `ntsb_aviation_accidents` — NTSB 民航事故调查数据集
 
 ## FAA/OpenSky 分析数据流（SQLite 驱动）
 
@@ -250,6 +282,74 @@ OpenSky: opensky_states.icao24
 - `analysisService.getFaaInfoBulk(icao24List)` — 批量查询，SQL `IN` 子句分块（500/批）。
 - 统计数据中的 FAA 匹配数通过 `INNER JOIN` 在数据库层完成。
 
+## NTSB 事故趋势分析数据流（SQLite 聚合驱动）
+
+NTSB 页面定位为趋势与风险态势看板，不展示单个事故详情。渲染进程不直接访问数据库，也不一次性接收事故明细。
+
+```text
+┌─────────────────────────────────────────────────────┐
+│ 数据采集入库页面                                      │
+│   → 下载 avall.zip → 解析 avall.mdb → 写入 SQLite      │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       ▼
+┌────────────────── SQLite ──────────────────────────┐
+│ ntsb_events / ntsb_aircraft / ntsb_narratives       │
+│ ntsb_findings / ntsb_flight_crew / ntsb_engines     │
+│ ntsb_injury                                         │
+└──────────────────────┬──────────────────────────────┘
+                       │
+                       │ ntsb: IPC（聚合查询）
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│ NTSB 事故趋势分析页面                                  │
+│   → KPI、年度趋势、严重度分布                            │
+│   → 事故空间聚合、飞机画像、天气、原因分类                 │
+└─────────────────────────────────────────────────────┘
+```
+
+### 页面组成
+
+- 顶部筛选器：年份范围、国家、州/地区、严重度、飞机类别、损坏程度。
+- KPI：总事故/事件、致命事故、致命占比、涉事飞机、有坐标事故、有叙述事故、高发地区。
+- 图表：年度趋势、严重度分布、光照/天气分布、原因发现关键词分类。
+- 地图：事故空间聚合圆点，按经纬度网格统计事故密度和致命事故数。
+- 飞机画像：飞机类别和制造商 Top N。
+
+### 筛选与联动
+
+所有筛选都通过 IPC 重新请求聚合数据：
+
+```text
+ntsb.js -> window.electronAPI.getNtsbXxx(filters)
+        -> main.js IPC
+        -> ntsbAnalysisService.js
+        -> SQLite 聚合 SQL
+```
+
+点击年度趋势中的年份会把年份范围锁定为该年；点击严重度条形图会设置严重度筛选；点击地图聚合点会设置国家/州；点击飞机类别会设置飞机类别筛选。
+
+### 事故空间聚合地图
+
+地图由 `ntsbAnalysisService.getGeoAggregation()` 产生聚合结果：
+
+```sql
+ROUND(dec_latitude * 2.0) / 2.0 AS lat,
+ROUND(dec_longitude * 2.0) / 2.0 AS lng
+```
+
+每个 `0.5°` 经纬度网格返回：
+
+- `count`：该网格事故数量
+- `fatalCount`：该网格致命事故数量
+- `country/state`：区域标签
+
+前端 `ntsb.js` 使用 Leaflet `L.circleMarker()` 绘制聚合圆点：
+
+- 半径按 `sqrt(count / max)` 缩放。
+- 颜色按致命占比区分：低占比为青色，中等为橙色，高占比为红色。
+- 每次最多返回 650 个聚合点，避免渲染 2 万多条事故 marker。
+
 ## 数据采集入库
 
 ### 架构
@@ -265,7 +365,8 @@ Renderer (import.js)
           v
 dataSourceService.js           ← 中央注册表，调度数据源
   ├── openskyDataSource.js     ← OpenSky 全量航班状态数据
-  └── faaDataSource.js         ← FAA 注册飞机数据库
+  ├── faaDataSource.js         ← FAA 注册飞机数据库
+  └── ntsbDataSource.js        ← NTSB 民航事故调查数据集
           |
           v
 databaseService.js             ← SQLite 数据表读写
@@ -325,6 +426,25 @@ FAA 官网 (https://registry.faa.gov/database/ReleasableAircraft.zip)
 - 每次入库先清空表，再全量写入。
 - 复用 `faaService.downloadFile()` / `faaService.loadFromZip()` / `faaService.parseMasterText()`。
 
+#### NTSB
+
+```text
+NTSB avall.zip
+  -> ntsbDataSource.download()
+  -> data/avall.zip                         (本地缓存)
+  -> ntsbDataSource.parse()
+  -> AdmZip -> avall.mdb -> mdb-reader
+  -> ntsbDataSource.importToDatabase()
+  -> ntsb_events / ntsb_aircraft / ntsb_narratives
+     ntsb_findings / ntsb_flight_crew / ntsb_engines / ntsb_injury
+```
+
+说明：
+- 只导入事故趋势分析需要的核心表。
+- 每次入库先删除旧的 NTSB 目标表，再按 Access 字段动态建表。
+- 导入后为 `ev_id`、`Aircraft_Key`、经纬度等常用字段创建索引。
+- NTSB 事故趋势分析页面只读这些表，通过 SQL 聚合生成图表数据。
+
 ### 数据库表
 
 `opensky_states` 和 `faa_aircraft` 由 `databaseService.js` 在首次使用时自动创建。表结构与索引见 [databaseService.js](../src/main/databaseService.js) `initializeSchema()` 函数。
@@ -383,7 +503,7 @@ FAA 官网 (https://registry.faa.gov/database/ReleasableAircraft.zip)
 
 包含两个模块：
 
-- `AppModule`：标签页切换（含三个标签）和登录生命周期入口。
+- `AppModule`：标签页切换（含四个标签）和登录生命周期入口。
 - `FaaOpenskyModule`：地图、航班图层、FAA 匹配、详情面板。
 
 `FaaOpenskyModule.initialize()` 只应在登录后调用一次。
@@ -395,6 +515,17 @@ FAA 官网 (https://registry.faa.gov/database/ReleasableAircraft.zip)
 - 不再调用 `refreshFlights()`、`refreshFaaDatabase()` 等外部 API 方法。
 - 工具栏仅保留一个"刷新分析数据"按钮（重新查询数据库）。
 
+### ntsb.js
+
+负责 NTSB 事故趋势分析页面：
+
+- 读取筛选项：年份、国家、州/地区、严重度、飞机类别、损坏程度。
+- 通过 `window.electronAPI.getNtsbXxx(filters)` 获取聚合数据。
+- 使用 SVG 绘制年度趋势、严重度、天气和原因分类图表。
+- 使用 Leaflet 绘制事故空间聚合圆点。
+- 点击年份、严重度、地图区域、飞机类别时更新筛选并联动刷新。
+- 不展示单事故详情，也不在前端保存全量事故明细。
+
 ## 依赖说明
 
 | 依赖 | 用途 |
@@ -404,6 +535,7 @@ FAA 官网 (https://registry.faa.gov/database/ReleasableAircraft.zip)
 | `better-sqlite3` | SQLite 数据库 |
 | `bcryptjs` | 密码哈希 |
 | `adm-zip` | FAA ZIP 解析 |
+| `mdb-reader` | NTSB Access MDB 解析 |
 | `leaflet` | 地图渲染，当前从 CDN 加载 |
 
 `better-sqlite3` 是原生模块。安装依赖后需要面向 Electron 重建，项目通过：
@@ -432,14 +564,17 @@ node -c src/main/databaseService.js
 node -c src/main/dataSourceService.js
 node -c src/main/openskyDataSource.js
 node -c src/main/faaDataSource.js
+node -c src/main/ntsbDataSource.js
 node -c src/main/openskyService.js
 node -c src/main/faaService.js
 node -c src/main/cacheService.js
 node -c src/main/analysisService.js
+node -c src/main/ntsbAnalysisService.js
 node -c src/renderer/login.js
 node -c src/renderer/import.js
 node -c src/renderer/admin.js
 node -c src/renderer/app.js
+node -c src/renderer/ntsb.js
 ```
 
 注意：`better-sqlite3` 重建为 Electron ABI 后，普通 Node 可能无法直接加载该模块进行运行时测试。语法检查仍可用，运行行为以 Electron 环境为准。
@@ -503,8 +638,10 @@ login.js
 分析页面完全基于 SQLite 运行。如果没有数据：
 
 1. 切换到”数据采集入库”页面。
-2. 对 OpenSky 和 FAA 数据源点击”一键更新”（或分步：下载 → 解析 → 入库）。
-3. 切换回”FAA/OpenSky 分析”页面，点击”刷新分析数据”。
+2. 对需要的数据源点击”一键更新”（或分步：下载 → 解析 → 入库）。
+3. FAA/OpenSky 分析页需要 `opensky_states` 和 `faa_aircraft`。
+4. NTSB 事故趋势分析页需要 `ntsb_aviation_accidents`。
+5. 切换回对应分析页面，点击刷新或重新切换标签页触发加载。
 
 分析页面不会自动触发任何下载或外部 API 请求。
 
@@ -533,11 +670,12 @@ login.js
 - 单独点击**入库**执行解析 + 写入数据库两步操作。
 - 下次软件启动后，数据采集入库页面显示的是上次操作的状态（记录数、各步骤时间等）。
 
-### OpenSky 与 FAA 在分析页面和采集页面的关系
+### 分析页面和采集页面的关系
 
-两个页面共享同一数据源（SQLite），分工明确：
+分析页面和采集页面共享同一数据源（SQLite），分工明确：
 
-- **数据采集入库页面**：负责下载原始数据、解析、写入 SQLite（`opensky_states` / `faa_aircraft` 表）。
+- **数据采集入库页面**：负责下载原始数据、解析、写入 SQLite（`opensky_states` / `faa_aircraft` / `ntsb_*` 表）。
 - **FAA/OpenSky 分析页面**：只读 SQLite，地图展示、FAA 匹配、详情查询。
+- **NTSB 事故趋势分析页面**：只读 SQLite，展示事故 KPI、趋势、空间聚合、飞机画像、天气和原因分类。
 
 分析页面不再直接访问文件或 API。所有数据必须先在采集页面入库，才能在分析页面查看。
