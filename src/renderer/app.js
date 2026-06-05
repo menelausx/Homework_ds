@@ -7,9 +7,11 @@ var AppModule = (function () {
   // ── Tab switching ───────────────────────────────────────────────────────
 
   var tabFaaOpensky = document.getElementById('tab-faa-opensky');
+  var tabNtsb = document.getElementById('tab-ntsb');
   var tabImport = document.getElementById('tab-import');
   var tabAdmin = document.getElementById('tab-admin');
   var moduleFaaOpensky = document.getElementById('module-faa-opensky');
+  var moduleNtsb = document.getElementById('module-ntsb');
   var moduleImport = document.getElementById('module-import');
   var moduleAdmin = document.getElementById('module-admin');
 
@@ -31,6 +33,7 @@ var AppModule = (function () {
 
     // Hide all modules first
     if (moduleFaaOpensky) moduleFaaOpensky.style.display = 'none';
+    if (moduleNtsb) moduleNtsb.style.display = 'none';
     if (moduleImport) moduleImport.style.display = 'none';
     if (moduleAdmin) moduleAdmin.style.display = 'none';
 
@@ -40,6 +43,11 @@ var AppModule = (function () {
       // Trigger map resize if it was hidden
       if (typeof FaaOpenskyModule !== 'undefined' && FaaOpenskyModule.onActivate) {
         FaaOpenskyModule.onActivate();
+      }
+    } else if (tabName === 'ntsb') {
+      if (moduleNtsb) moduleNtsb.style.display = '';
+      if (typeof NtsbModule !== 'undefined' && NtsbModule.onActivate) {
+        NtsbModule.onActivate();
       }
     } else if (tabName === 'import') {
       if (moduleImport) moduleImport.style.display = '';
@@ -57,6 +65,12 @@ var AppModule = (function () {
   if (tabFaaOpensky) {
     tabFaaOpensky.addEventListener('click', function () {
       switchTab('faa-opensky');
+    });
+  }
+
+  if (tabNtsb) {
+    tabNtsb.addEventListener('click', function () {
+      switchTab('ntsb');
     });
   }
 
@@ -79,6 +93,9 @@ var AppModule = (function () {
     // If FaaOpenskyModule was deferred, initialize it now
     if (typeof FaaOpenskyModule !== 'undefined' && FaaOpenskyModule.initialize) {
       FaaOpenskyModule.initialize();
+    }
+    if (typeof NtsbModule !== 'undefined' && NtsbModule.initialize) {
+      NtsbModule.initialize();
     }
   }
 

@@ -4,6 +4,7 @@ const userService = require('./src/main/userService');
 const dataSourceService = require('./src/main/dataSourceService');
 const databaseService = require('./src/main/databaseService');
 const analysisService = require('./src/main/analysisService');
+const ntsbAnalysisService = require('./src/main/ntsbAnalysisService');
 const cacheService = require('./src/main/cacheService');
 
 let mainWindow = null;
@@ -293,6 +294,82 @@ function setupAnalysisIpcHandlers() {
   });
 }
 
+// ── NTSB Analysis IPC handlers (aggregate SQLite queries) ─────────────────
+
+function setupNtsbAnalysisIpcHandlers() {
+  ipcMain.handle('ntsb:getFilterOptions', async () => {
+    try {
+      return ntsbAnalysisService.getFilterOptions();
+    } catch (error) {
+      console.error('[ntsb] getFilterOptions error:', error.message);
+      return { years: { min: null, max: null }, countries: [], states: [], severities: [], aircraftCategories: [], damages: [] };
+    }
+  });
+
+  ipcMain.handle('ntsb:getOverview', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getOverview(filters);
+    } catch (error) {
+      console.error('[ntsb] getOverview error:', error.message);
+      return { totalEvents: 0, fatalEvents: 0, fatalRate: 0, aircraftCount: 0, geoEventCount: 0, narrativeEventCount: 0, topRegion: null };
+    }
+  });
+
+  ipcMain.handle('ntsb:getYearlyTrend', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getYearlyTrend(filters);
+    } catch (error) {
+      console.error('[ntsb] getYearlyTrend error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ntsb:getSeverityDistribution', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getSeverityDistribution(filters);
+    } catch (error) {
+      console.error('[ntsb] getSeverityDistribution error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ntsb:getGeoAggregation', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getGeoAggregation(filters);
+    } catch (error) {
+      console.error('[ntsb] getGeoAggregation error:', error.message);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ntsb:getAircraftBreakdown', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getAircraftBreakdown(filters);
+    } catch (error) {
+      console.error('[ntsb] getAircraftBreakdown error:', error.message);
+      return { categories: [], makes: [], models: [], damages: [], ageBuckets: [] };
+    }
+  });
+
+  ipcMain.handle('ntsb:getWeatherBreakdown', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getWeatherBreakdown(filters);
+    } catch (error) {
+      console.error('[ntsb] getWeatherBreakdown error:', error.message);
+      return { light: [], conditions: [], visibility: [], wind: [] };
+    }
+  });
+
+  ipcMain.handle('ntsb:getFindingBreakdown', async (_event, filters) => {
+    try {
+      return ntsbAnalysisService.getFindingBreakdown(filters);
+    } catch (error) {
+      console.error('[ntsb] getFindingBreakdown error:', error.message);
+      return { categories: [], topFindings: [], severityMatrix: [] };
+    }
+  });
+}
+
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -312,6 +389,7 @@ app.whenReady().then(() => {
   setupDataSourceIpcHandlers();
   setupShellIpcHandlers();
   setupAnalysisIpcHandlers();
+  setupNtsbAnalysisIpcHandlers();
 
   // 4. App is ready — no background FAA loading needed.
   //    Analysis page reads from SQLite via analysis: IPC channels.

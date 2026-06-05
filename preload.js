@@ -21,6 +21,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFaaInfo: (icao24) => ipcRenderer.invoke('analysis:getFaaInfo', icao24),
   getFaaInfoBulk: (icao24List) => ipcRenderer.invoke('analysis:getFaaInfoBulk', icao24List),
 
+  // ── NTSB Accident Trend Analysis (aggregate SQLite queries) ─────────────
+  getNtsbFilterOptions: () => ipcRenderer.invoke('ntsb:getFilterOptions'),
+  getNtsbOverview: (filters) => ipcRenderer.invoke('ntsb:getOverview', filters),
+  getNtsbYearlyTrend: (filters) => ipcRenderer.invoke('ntsb:getYearlyTrend', filters),
+  getNtsbSeverityDistribution: (filters) => ipcRenderer.invoke('ntsb:getSeverityDistribution', filters),
+  getNtsbGeoAggregation: (filters) => ipcRenderer.invoke('ntsb:getGeoAggregation', filters),
+  getNtsbAircraftBreakdown: (filters) => ipcRenderer.invoke('ntsb:getAircraftBreakdown', filters),
+  getNtsbWeatherBreakdown: (filters) => ipcRenderer.invoke('ntsb:getWeatherBreakdown', filters),
+  getNtsbFindingBreakdown: (filters) => ipcRenderer.invoke('ntsb:getFindingBreakdown', filters),
+
   // ── Data Source Import ──────────────────────────────────────────────────
   listDataSources: () => ipcRenderer.invoke('dataSources:list'),
   getDataSourceStatus: (sourceId) => ipcRenderer.invoke('dataSources:status', sourceId),

@@ -64,6 +64,10 @@
         <span class="tab-icon">&#9992;</span>
         FAA/OpenSky 分析
       </div>
+      <div class="tab" data-tab="ntsb" id="tab-ntsb">
+        <span class="tab-icon">N</span>
+        NTSB 事故趋势分析
+      </div>
       <div class="tab" data-tab="import" id="tab-import">
         <span class="tab-icon">&#128230;</span>
         数据采集入库
@@ -195,6 +199,118 @@
             <div class="detail-item"><span class="detail-label">spi</span><span class="detail-value" data-dfield="spi">-</span></div>
             <div class="detail-item"><span class="detail-label">position_source</span><span class="detail-value" data-dfield="position_source">-</span></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── NTSB Accident Trend Analysis Module ──────────────────────── -->
+    <div class="module-content" id="module-ntsb" style="display:none;">
+      <div class="ntsb-container">
+        <div class="ntsb-toolbar">
+          <div class="ntsb-toolbar-title">
+            <h2>NTSB 事故趋势分析</h2>
+            <span id="ntsb-status-text">等待加载</span>
+          </div>
+          <div class="ntsb-filter-grid">
+            <label class="ntsb-filter">
+              <span>起始年份</span>
+              <input type="number" id="ntsb-year-from" class="ntsb-input" min="1900" max="2100">
+            </label>
+            <label class="ntsb-filter">
+              <span>结束年份</span>
+              <input type="number" id="ntsb-year-to" class="ntsb-input" min="1900" max="2100">
+            </label>
+            <label class="ntsb-filter">
+              <span>国家</span>
+              <select id="ntsb-country" class="ntsb-input"></select>
+            </label>
+            <label class="ntsb-filter">
+              <span>州/地区</span>
+              <select id="ntsb-state" class="ntsb-input"></select>
+            </label>
+            <label class="ntsb-filter">
+              <span>严重度</span>
+              <select id="ntsb-severity" class="ntsb-input"></select>
+            </label>
+            <label class="ntsb-filter">
+              <span>飞机类别</span>
+              <select id="ntsb-acft-category" class="ntsb-input"></select>
+            </label>
+            <label class="ntsb-filter">
+              <span>损坏程度</span>
+              <select id="ntsb-damage" class="ntsb-input"></select>
+            </label>
+            <div class="ntsb-actions">
+              <button class="toolbar-btn primary" id="btn-ntsb-refresh">
+                <span class="btn-icon">&#8635;</span> 刷新
+              </button>
+              <button class="toolbar-btn" id="btn-ntsb-reset">重置</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ntsb-kpi-grid">
+          <div class="ntsb-kpi"><span>总事故/事件</span><strong id="ntsb-kpi-total">0</strong></div>
+          <div class="ntsb-kpi fatal"><span>致命事故</span><strong id="ntsb-kpi-fatal">0</strong></div>
+          <div class="ntsb-kpi"><span>致命占比</span><strong id="ntsb-kpi-fatal-rate">0%</strong></div>
+          <div class="ntsb-kpi"><span>涉事飞机</span><strong id="ntsb-kpi-aircraft">0</strong></div>
+          <div class="ntsb-kpi"><span>有坐标事故</span><strong id="ntsb-kpi-geo">0</strong></div>
+          <div class="ntsb-kpi"><span>有叙述事故</span><strong id="ntsb-kpi-narrative">0</strong></div>
+          <div class="ntsb-kpi"><span>高发地区</span><strong id="ntsb-kpi-region">--</strong></div>
+        </div>
+
+        <div class="ntsb-dashboard">
+          <section class="ntsb-panel ntsb-panel-wide">
+            <div class="ntsb-panel-header">
+              <h3>年度事故趋势</h3>
+              <span>总量 / 致命 / 严重度结构</span>
+            </div>
+            <div class="ntsb-chart" id="ntsb-yearly-chart"></div>
+          </section>
+          <section class="ntsb-panel">
+            <div class="ntsb-panel-header">
+              <h3>伤害严重度结构</h3>
+              <span>按最高伤害等级</span>
+            </div>
+            <div class="ntsb-chart" id="ntsb-severity-chart"></div>
+          </section>
+          <section class="ntsb-panel ntsb-map-panel">
+            <div class="ntsb-panel-header">
+              <h3>事故空间聚合</h3>
+              <span>经纬度网格密度</span>
+            </div>
+            <div id="ntsb-map"></div>
+          </section>
+          <section class="ntsb-panel">
+            <div class="ntsb-panel-header">
+              <h3>飞机画像</h3>
+              <span>类别 / 制造商 Top N</span>
+            </div>
+            <div class="ntsb-split-list">
+              <div>
+                <h4>类别</h4>
+                <div id="ntsb-category-list" class="ntsb-list"></div>
+              </div>
+              <div>
+                <h4>制造商</h4>
+                <div id="ntsb-make-list" class="ntsb-list"></div>
+              </div>
+            </div>
+          </section>
+          <section class="ntsb-panel">
+            <div class="ntsb-panel-header">
+              <h3>光照与天气</h3>
+              <span>事故数 / 致命占比</span>
+            </div>
+            <div class="ntsb-chart" id="ntsb-weather-chart"></div>
+          </section>
+          <section class="ntsb-panel ntsb-panel-wide">
+            <div class="ntsb-panel-header">
+              <h3>原因发现分类</h3>
+              <span>关键词粗分类</span>
+            </div>
+            <div class="ntsb-chart" id="ntsb-finding-chart"></div>
+          </section>
         </div>
       </div>
     </div>
@@ -366,6 +482,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="admin.js"></script>
   <script src="import.js"></script>
+  <script src="ntsb.js"></script>
   <script src="app.js"></script>
   <script src="login.js"></script>
 </body>
