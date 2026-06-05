@@ -1686,6 +1686,8 @@ body {
   flex: 1;
   min-height: 0;
   padding: 10px 12px 12px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .ntsb-split-list h4 {
@@ -1701,8 +1703,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  min-height: 0;
-  overflow-y: auto;
+  min-height: max-content;
 }
 
 .ntsb-list-row {
