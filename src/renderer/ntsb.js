@@ -28,6 +28,68 @@ var NtsbModule = (function () {
     text: '#c9d1d9',
   };
 
+  var DISPLAY_LABELS = {
+    severity: {
+      FATL: '致命',
+      SERS: '严重',
+      MINR: '轻伤',
+      NONE: '无伤',
+      UNKNOWN: '未知',
+    },
+    damage: {
+      DEST: '彻底毁坏',
+      DESTROYED: '彻底毁坏',
+      SUBS: '严重损坏',
+      SUBSTANTIAL: '严重损坏',
+      MINR: '轻微损坏',
+      MINOR: '轻微损坏',
+      NONE: '无损坏',
+      UNKNOWN: '未知',
+      UNK: '未知',
+    },
+    acftCategory: {
+      AIRPLANE: '飞机',
+      HELICOPTER: '直升机',
+      GLIDER: '滑翔机',
+      BALLOON: '气球',
+      GYROCRAFT: '旋翼机',
+      ULTRALIGHT: '超轻型航空器',
+      'POWERED PARACHUTE': '动力伞',
+      'WEIGHT-SHIFT': '重心转移飞行器',
+      'WEIGHT SHIFT': '重心转移飞行器',
+      UNKNOWN: '未知',
+    },
+    light: {
+      DAYL: '白天',
+      DAYLIGHT: '白天',
+      DARK: '夜间',
+      NIGHT: '夜间',
+      DAWN: '黎明',
+      DUSK: '黄昏',
+      NDRK: '夜间无照明',
+      'DARK NIGHT': '夜间无照明',
+      'DARKNIGHT': '夜间无照明',
+      UNKNOWN: '未知',
+      UNK: '未知',
+    },
+    weather: {
+      VMC: '目视气象条件',
+      IMC: '仪表气象条件',
+      UNKNOWN: '未知',
+      UNK: '未知',
+    },
+    country: {
+      US: '美国',
+      USA: '美国',
+      'UNITED STATES': '美国',
+      CA: '加拿大',
+      CANADA: '加拿大',
+      MX: '墨西哥',
+      MEXICO: '墨西哥',
+      UNKNOWN: '未知',
+    },
+  };
+
   var $ = function (sel) {
     return document.querySelector(sel);
   };
@@ -75,21 +137,21 @@ var NtsbModule = (function () {
   }
 
   function severityLabel(value) {
-    var map = {
-      FATL: '致命',
-      SERS: '严重',
-      MINR: '轻伤',
-      NONE: '无伤',
-      UNKNOWN: '未知',
-    };
-    return map[String(value || '').toUpperCase()] || value || '未知';
+    return displayLabel('severity', value);
   }
 
   function safeText(value) {
     return value == null || value === '' ? '未知' : String(value);
   }
 
-  function fillSelect(select, options, placeholder) {
+  function displayLabel(field, value) {
+    var text = safeText(value);
+    var key = String(text).trim().toUpperCase();
+    var fieldMap = DISPLAY_LABELS[field] || {};
+    return fieldMap[key] || text;
+  }
+
+  function fillSelect(select, options, placeholder, field) {
     if (!select) return;
     select.innerHTML = '';
 
@@ -102,7 +164,7 @@ var NtsbModule = (function () {
       var item = options[i];
       var opt = document.createElement('option');
       opt.value = item.value;
-      opt.textContent = item.value + (item.count != null ? ' (' + formatInt(item.count) + ')' : '');
+      opt.textContent = displayLabel(field, item.value) + (item.count != null ? ' (' + formatInt(item.count) + ')' : '');
       select.appendChild(opt);
     }
   }
@@ -160,11 +222,11 @@ var NtsbModule = (function () {
       els.yearTo.max = optionYears.max;
     }
 
-    fillSelect(els.country, options.countries || [], '全部国家');
+    fillSelect(els.country, options.countries || [], '全部国家', 'country');
     fillSelect(els.state, options.states || [], '全部州/地区');
-    fillSelect(els.severity, options.severities || [], '全部严重度');
-    fillSelect(els.acftCategory, options.aircraftCategories || [], '全部飞机类别');
-    fillSelect(els.damage, options.damages || [], '全部损坏程度');
+    fillSelect(els.severity, options.severities || [], '全部严重度', 'severity');
+    fillSelect(els.acftCategory, options.aircraftCategories || [], '全部飞机类别', 'acftCategory');
+    fillSelect(els.damage, options.damages || [], '全部损坏程度', 'damage');
   }
 
   async function loadDashboard() {
@@ -224,7 +286,7 @@ var NtsbModule = (function () {
     if (els.kpiRegion) {
       var region = data.topRegion;
       els.kpiRegion.textContent = region
-        ? [region.country, region.state].filter(Boolean).join(' / ') + ' ' + formatInt(region.count)
+        ? [displayLabel('country', region.country), region.state].filter(Boolean).join(' / ') + ' ' + formatInt(region.count)
         : '--';
     }
   }
@@ -347,7 +409,8 @@ var NtsbModule = (function () {
     renderBars(els.weatherChart, (data.light || []).map(function (row) {
       var fatalRate = row.count ? row.fatalCount / row.count : 0;
       return {
-        label: safeText(row.label),
+        label: displayLabel('light', row.label),
+        raw: row.label,
         count: row.count,
         meta: formatPct(fatalRate),
       };
@@ -413,9 +476,15 @@ var NtsbModule = (function () {
   }
 
   function renderAircraftBreakdown(data) {
-    renderCompactList(els.categoryList, data.categories || [], function (row) {
+    renderCompactList(els.categoryList, (data.categories || []).map(function (row) {
+      return {
+        label: displayLabel('acftCategory', row.label),
+        raw: row.label,
+        count: row.count,
+      };
+    }), function (row) {
       if (els.acftCategory) {
-        els.acftCategory.value = row.label === 'UNKNOWN' ? '' : row.label;
+        els.acftCategory.value = row.raw === 'UNKNOWN' ? '' : row.raw;
         scheduleLoad();
       }
     });
@@ -485,7 +554,7 @@ var NtsbModule = (function () {
       });
 
       marker.bindTooltip(
-        [row.country, row.state].filter(Boolean).join(' / ') +
+        [displayLabel('country', row.country), row.state].filter(Boolean).join(' / ') +
         '<br>事故: ' + formatInt(count) +
         '<br>致命: ' + formatInt(row.fatalCount || 0),
         { sticky: true }
