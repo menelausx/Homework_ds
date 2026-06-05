@@ -56,14 +56,14 @@ async function importToDatabase(parsedData) {
       region, county, country, last_action_date, cert_issue_date,
       certification, type_aircraft, type_engine, status_code,
       mode_s_code, fract_owner, air_worth_date, expiration_date,
-      unique_id, kit_mfr, kit_model, mode_s_code_hex, raw_json, created_at
+      unique_id, kit_mfr, kit_model, mode_s_code_hex, created_at
     ) VALUES (
       @n_number, @serial_number, @mfr_mdl_code, @eng_mfr_mdl, @year_mfr,
       @type_registrant, @name, @street, @street2, @city, @state, @zip_code,
       @region, @county, @country, @last_action_date, @cert_issue_date,
       @certification, @type_aircraft, @type_engine, @status_code,
       @mode_s_code, @fract_owner, @air_worth_date, @expiration_date,
-      @unique_id, @kit_mfr, @kit_model, @mode_s_code_hex, @raw_json, @created_at
+      @unique_id, @kit_mfr, @kit_model, @mode_s_code_hex, @created_at
     )
   `);
 
@@ -109,7 +109,6 @@ async function importToDatabase(parsedData) {
         kit_mfr: r['KIT MFR'] || null,
         kit_model: r['KIT MODEL'] || null,
         mode_s_code_hex: modeSCodeHex || null,
-        raw_json: JSON.stringify(r),
         created_at: now,
       });
       count++;

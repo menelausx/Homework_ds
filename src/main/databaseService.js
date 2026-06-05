@@ -63,7 +63,6 @@ function initializeSchema() {
       squawk TEXT,
       spi INTEGER,
       position_source INTEGER,
-      raw_json TEXT,
       created_at TEXT NOT NULL
     );
 
@@ -105,7 +104,6 @@ function initializeSchema() {
       kit_mfr TEXT,
       kit_model TEXT,
       mode_s_code_hex TEXT,
-      raw_json TEXT,
       created_at TEXT NOT NULL
     );
 

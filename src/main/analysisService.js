@@ -74,29 +74,25 @@ function getFlight(icao24) {
 
   if (!row) return null;
 
-  try {
-    return JSON.parse(row.raw_json);
-  } catch (_) {
-    return {
-      icao24: row.icao24,
-      callsign: row.callsign || '',
-      origin_country: row.origin_country || '',
-      time_position: row.time_position,
-      last_contact: row.last_contact,
-      longitude: row.longitude,
-      latitude: row.latitude,
-      baro_altitude: row.baro_altitude,
-      on_ground: row.on_ground,
-      velocity: row.velocity,
-      true_track: row.true_track,
-      vertical_rate: row.vertical_rate,
-      sensors: row.sensors,
-      geo_altitude: row.geo_altitude,
-      squawk: row.squawk,
-      spi: row.spi,
-      position_source: row.position_source,
-    };
-  }
+  return {
+    icao24: row.icao24,
+    callsign: row.callsign || '',
+    origin_country: row.origin_country || '',
+    time_position: row.time_position,
+    last_contact: row.last_contact,
+    longitude: row.longitude,
+    latitude: row.latitude,
+    baro_altitude: row.baro_altitude,
+    on_ground: row.on_ground === 1,
+    velocity: row.velocity,
+    true_track: row.true_track,
+    vertical_rate: row.vertical_rate,
+    sensors: row.sensors,
+    geo_altitude: row.geo_altitude,
+    squawk: row.squawk,
+    spi: row.spi === 1,
+    position_source: row.position_source,
+  };
 }
 
 // ── FAA Aircraft Queries ───────────────────────────────────────────────────
