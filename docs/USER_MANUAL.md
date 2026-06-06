@@ -39,6 +39,7 @@
 - **事故分析**：浏览 NTSB（美国国家运输安全委员会）航空事故数据库的趋势图表、空间分布和分类统计。
 - **数据采集**：从 OpenSky、FAA、NTSB 三个数据源下载、解析、导入数据到本地数据库。
 - **用户管理**：支持多用户账号的创建、编辑、密码管理和删除。
+- **密态存储**：所有敏感数据（航班记录、FAA 注册信息、NTSB 事故数据、下载缓存）均经过加密存储，只有登录后才能解密访问。
 
 ![image-20260605200242004](C:\Users\97208\AppData\Roaming\Typora\typora-user-images\image-20260605200242004.png)
 
@@ -53,13 +54,13 @@
 
 ### 软件依赖
 
-- **Node.js**：如需从源码运行或开发，建议安装 Node.js 18 或更高版本。如果仅使用打包后的 `.exe` 程序，则无需安装 Node.js。
+- **Node.js**：如需从源码运行或开发，需要安装 Node.js 20 或兼容版本。如果仅使用打包后的 `.exe` 程序，则无需安装 Node.js。
 - **网络连接**：首次使用时需要网络连接以下载外部数据源（OpenSky、FAA、NTSB）和加载地图瓦片。
 - **本地存储空间**：程序运行需要足够的磁盘空间用于存储数据库和缓存文件。FAA 和 NTSB 数据文件较大，建议预留至少 2 GB 空间。
 
 ### 其他说明
 
-- 本系统不需要安装额外的数据库软件。所有数据存储在程序自带的 SQLite 数据库文件中（`data/app.db`）。
+- 本系统不需要安装额外的数据库软件。所有数据存储在程序自带的加密 SQLite 数据库文件中（`data/app.db`），加密解密过程由程序自动完成，无需用户干预。
 - 本系统不需要安装 pandoc 或其他文档转换工具。
 - 地图功能依赖 OpenStreetMap 瓦片服务，需要能够访问 `tile.openstreetmap.org`。
 
@@ -154,14 +155,15 @@ npm run build
 
 #### 功能说明
 
-系统启动后首先显示登录界面。用户必须输入正确的用户名和密码才能进入主界面。系统支持"保持登录"功能，即在关闭程序前如果未手动注销，下次启动时会自动恢复登录状态。
+系统启动后首先显示登录界面。用户必须输入正确的用户名和密码才能进入主界面。系统支持"保持登录"功能：勾选后，下次启动程序时可跳过登录界面直接进入。
 
 #### 操作步骤
 
 1. 启动程序后，登录界面会自动显示。
 2. 输入用户名和密码。
-3. 点击 **"登 录"** 按钮（或按键盘回车键）。
-4. 登录成功后，登录界面会自动消失，显示主界面。
+3. （可选）勾选 **"保持登录"** 复选框，以便下次启动时自动恢复登录。
+4. 点击 **"登 录"** 按钮（或按键盘回车键）。
+5. 登录成功后，登录界面会自动消失，显示主界面。
 
 **首次使用：**
 
@@ -177,7 +179,9 @@ npm run build
 
 **自动恢复登录：**
 
-如果您上次关闭程序时未手动注销，下次启动时会自动跳过登录界面。如需切换用户，请先注销再使用其他账号登录。
+如果登录时勾选了"保持登录"，下次启动程序时会自动跳过登录界面。保持登录凭据保存在 `data/login-session.json` 文件中。如需切换用户，请先注销再使用其他账号登录。
+
+> **撤销保持登录**：点击"注销"按钮会同时清除当前会话和保持登录凭据。下次启动时需要重新输入密码。
 
 #### 注意事项
 
@@ -340,8 +344,6 @@ npm run build
 - **国家**：按事故发生的国家/地区筛选。
 - **州/地区**：按事故发生的美国州或地区筛选。
 - **严重度**：按最高伤害等级筛选（致命、严重、轻伤、无伤、未知）。
-- **飞机类别**：按航空器类别筛选（飞机、直升机、滑翔机等）。
-- **损坏程度**：按飞机损坏程度筛选（彻底毁坏、严重损坏、轻微损坏等）。
 
 修改任意筛选条件后，所有图表会自动刷新。
 
@@ -350,7 +352,6 @@ npm run build
 - **点击年度趋势图中的柱状条**：将该年份设为筛选条件。
 - **点击严重度分布条**：按该严重度筛选。
 - **点击空间聚合地图上的圆圈**：按该区域（国家/州）筛选。
-- **点击飞机类别/制造商**：按该类别或制造商筛选。
 
 **重置筛选：**
 
@@ -375,7 +376,7 @@ npm run build
 
 4. **事故空间聚合地图**：在地图上以圆圈大小表示各区域事故密度，圆圈颜色深浅表示致命率高低。点击圆圈可按区域筛选。
 
-5. **飞机画像**：
+5. **飞机画像**（只读展示，不参与筛选）：
    - 类别分布（飞机/直升机/滑翔机等）
    - 制造商 Top N 排行
 
@@ -453,7 +454,7 @@ npm run build
 
 #### 功能说明
 
-清除 `data/` 目录下的原始缓存文件（如原始 JSON、ZIP 文件等），但**不会**删除数据库文件（`app.db`）。
+清除 `data/` 目录下的加密缓存文件（`.securecache` 文件），但**不会**删除数据库文件（`app.db`）和密钥文件（`keyring.json`）。
 
 #### 操作步骤
 
@@ -489,10 +490,15 @@ npm run build
 
 ### 数据存储位置
 
-- 数据库文件：`data/app.db`（SQLite 格式）
-- 原始缓存文件：`data/` 目录下的 `.json`、`.zip` 等文件
+- 数据库文件：`data/app.db`（SQLite 密态数据库，所有敏感数据经过加密存储）
+- 加密缓存文件：`data/` 目录下的 `.securecache` 文件（下载的原始数据以分块 AES-256-GCM 加密保存）
+- 密钥文件：`data/keyring.json`（密钥管理系统文件，不包含明文主密钥）
+- 会话文件：`data/login-session.json`（勾选"保持登录"后生成，不包含账号密码）
+- 数据库运行文件：`data/app.db-wal`、`data/app.db-shm`（SQLite WAL 模式自动生成）
 - 打包版程序中，`data/` 目录位于 `.exe` 文件所在的同级目录
 - 源码版中，`data/` 目录位于项目根目录
+
+> **重要提示**：`keyring.json` 与 `app.db` 必须配套使用。单独替换或删除其中任意一个，可能导致已存储的数据无法解密。如需迁移数据，请整体复制 `data/` 目录。
 
 ### 数据字段说明
 
@@ -573,7 +579,7 @@ npm run build
 - 原生模块编译缺少必要的构建工具（如 Visual Studio Build Tools）。
 
 **解决办法**：
-1. 确认 Node.js 版本为 18 或更高：`node --version`。
+1. 确认 Node.js 版本为 20 或更高：`node --version`。
 2. 如果网络较慢，可尝试配置 npm 镜像源（如使用 `nrm` 或手动设置 registry）。
 3. 在 Windows 上编译原生模块需要安装 Visual Studio Build Tools 或 `windows-build-tools`：
    ```bash
@@ -673,9 +679,9 @@ npm run build
 - 打包程序：`.exe` 文件同目录下的 `data/app.db`
 
 **备份方法**：
-直接复制 `data/app.db` 文件到安全位置即可。恢复时将备份文件覆盖回原位置。
+**必须同时备份** `data/app.db` 和 `data/keyring.json`（以及对应的 WAL 文件 `app.db-wal`、`app.db-shm`），两者配套才能正确解密数据。恢复时将所有备份文件一起覆盖回原位置。
 
-> **注意**：复制或恢复数据库文件前，请确保程序已关闭。
+> **注意**：复制或恢复数据库文件前，请确保程序已关闭。`keyring.json` 与 `app.db` 必须来自同一套 `data/` 目录，单独替换其中任意一个会导致数据无法解密。
 
 ---
 
@@ -685,8 +691,9 @@ npm run build
 - 联系系统管理员（即拥有管理员权限的其他用户），请其在"系统管理"中重置您的密码。
 
 如果您是唯一的管理员且忘记了密码：
-- 您可以删除 `data/app.db` 文件（注意：这会同时清除所有用户数据和已导入的航班/FAA/NTSB 数据），然后重新启动程序，系统将自动创建默认管理员账号 `admin / admin123`。
-- 或者，您可以联系技术人员通过 SQLite 工具直接修改数据库中的密码哈希值。
+
+- 您可以同时删除 `data/app.db`、`data/app.db-wal`、`data/app.db-shm` 和 `data/keyring.json` 文件（注意：这会**永久清除**所有用户数据和已导入的航班/FAA/NTSB 数据），然后重新启动程序，系统将自动创建默认管理员账号 `admin / admin123`。
+- 不要只删除 keyring 而保留数据库，否则数据库将无法解密。
 
 ---
 
@@ -724,6 +731,8 @@ npm run build
 | 程序卡死或无响应 | 大量数据加载或 FAA 查询耗时 | 耐心等待；下次可尝试分步操作而非一键更新 |
 | `better-sqlite3` 编译失败 | 缺少 C++ 编译工具链 | 安装 Visual Studio Build Tools 或 windows-build-tools |
 | 打包时 `winCodeSign` 报错 | Windows 权限不足 | 开启开发者模式；或以管理员权限运行 |
+| 登录失败但密码正确 | `keyring.json` 与 `app.db` 不配套 | 如果移动过 `data/` 目录，请确保 `keyring.json` 和 `app.db` 一起移动；不要只替换其中一个 |
+| 导入的旧数据无法查看 | keyring 已更换或丢失 | 删除 `data/app.db` 和 `data/keyring.json` 后重启程序并重新导入数据 |
 
 ---
 
@@ -743,9 +752,9 @@ npm run build
 
 ### 本地缓存管理
 
-- `data/` 目录中的原始缓存文件（`.zip`、`.json`）在数据入库后可以安全删除，不会影响分析功能。
+- `data/` 目录中的加密缓存文件（`.securecache`）在数据入库后可以安全删除，不会影响分析功能。
 - 可以使用"清理缓存"功能一键清理。
-- 数据库文件（`app.db`）会随着使用不断增大，如需清理空间，可以删除后重新导入数据。
+- 数据库文件（`app.db`）会随着使用不断增大，如需清理空间，可以删除 `app.db` 和 `keyring.json` 后重新导入数据（注意：这会同时清除所有用户账号）。
 
 ### 隐私与合规
 
@@ -761,7 +770,7 @@ npm run build
 
 ### 其他建议
 
-- 建议定期备份 `data/app.db` 文件，以防止数据丢失。
+- 建议定期备份 `data/app.db` 和 `data/keyring.json` 文件（两者必须一起备份），以防止数据丢失。
 - 如果程序运行异常，可以尝试删除 `data/app.db` 以外的缓存文件，重新导入数据。
 - 在大批量数据操作（如首次导入 NTSB 全量数据）时，建议关闭其他占用内存较大的程序。
 
@@ -773,9 +782,11 @@ npm run build
 
 | 命令 | 用途 | 环境要求 |
 |------|------|----------|
-| `npm install` | 安装所有依赖（首次使用或更新依赖后执行） | Node.js 18+ |
-| `npm start` | 启动开发环境（运行 Electron 程序） | Node.js 18+ |
-| `npm run build` | 构建 Windows 便携版可执行文件 | Node.js 18+、Windows |
+| `npm install` | 安装所有依赖（首次使用或更新依赖后执行） | Node.js 20+ |
+| `npm start` | 启动开发环境（运行 Electron 程序） | Node.js 20+ |
+| `npm run build` | 构建 Windows 便携版可执行文件 | Node.js 20+、Windows |
+| `npm test` | 运行安全模块单元测试 | Node.js 20+ |
+| `npm run test:electron` | 运行 Electron 端到端安全冒烟测试 | Node.js 20+ |
 
 ### B. 项目目录结构
 
@@ -796,7 +807,17 @@ npm run build
 │   │   ├── cacheService.js        # 缓存文件管理
 │   │   ├── databaseService.js     # 数据库连接管理
 │   │   ├── openskyService.js      # OpenSky API 调用
-│   │   └── faaService.js          # FAA ZIP 下载和解析
+│   │   ├── faaService.js          # FAA ZIP 下载和解析
+│   │   └── security/              # 安全模块
+│   │       ├── keyService.js      # 密钥管理
+│   │       ├── cryptoService.js   # 加密/解密服务
+│   │       ├── secureCacheService.js # 加密缓存
+│   │       ├── dimensionService.js   # 维度字典
+│   │       ├── searchIndexService.js # 加密倒排索引
+│   │       ├── rememberSessionService.js # 保持登录
+│   │       ├── normalizers.js     # 规范化
+│   │       ├── buckets.js         # 离散桶
+│   │       └── geo.js             # 坐标规则
 │   └── renderer/        # 渲染进程（前端界面）
 │       ├── index.html    # 主页面结构
 │       ├── login.js      # 登录模块
@@ -806,12 +827,19 @@ npm run build
 │       ├── admin.js      # 系统管理（用户管理）模块
 │       └── style.css     # 样式文件
 ├── data/                # 运行时数据（程序自动创建）
-│   ├── app.db           # SQLite 数据库文件
-│   ├── opensky_states_raw.json  # OpenSky 原始缓存
-│   ├── ReleasableAircraft.zip   # FAA 数据缓存
-│   └── avall.zip        # NTSB 数据缓存
+│   ├── app.db           # SQLite 密态数据库
+│   ├── app.db-wal       # SQLite WAL 运行文件
+│   ├── app.db-shm       # SQLite WAL 运行文件
+│   ├── keyring.json     # 密钥管理文件
+│   ├── login-session.json   # 保持登录凭据
+│   ├── opensky_states.securecache  # OpenSky 加密缓存
+│   ├── faa-aircraft.securecache    # FAA 加密缓存
+│   ├── ntsb-aviation.securecache   # NTSB 加密缓存
+│   └── electron-profile/   # Electron 运行配置
 ├── dist/                # 打包输出目录
+├── test/                # 测试文件
 └── docs/                # 文档
+    ├── DEVELOPMENT.md
     └── USER_MANUAL.md   # 本手册
 ```
 
@@ -819,9 +847,11 @@ npm run build
 
 | 文件 | 用途 |
 |------|------|
-| `data/app.db` | SQLite 数据库，存储所有用户、航班、FAA 注册和 NTSB 数据 |
+| `data/app.db` | SQLite 密态数据库，存储所有用户、航班、FAA 注册和 NTSB 数据 |
+| `data/keyring.json` | 密钥管理系统文件，与 app.db 配套使用 |
+| `data/login-session.json` | 保持登录凭据，不含账号密码 |
 | `main.js` | 应用入口，负责窗口创建和 IPC 通信注册 |
-| `preload.js` | 安全地向前端暴露 Electron API |
+| `preload.js` | 安全地向前端暴露受限业务 API |
 | `package.json` | 项目元数据和脚本命令定义 |
 
 ### D. 版本更新记录
