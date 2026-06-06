@@ -352,7 +352,6 @@ var NtsbModule = (function () {
     els.country = $('#ntsb-country');
     els.state = $('#ntsb-state');
     els.severity = $('#ntsb-severity');
-    els.damage = $('#ntsb-damage');
     els.refresh = $('#btn-ntsb-refresh');
     els.reset = $('#btn-ntsb-reset');
 
@@ -424,7 +423,6 @@ var NtsbModule = (function () {
       country: els.country ? els.country.value : '',
       state: els.state ? els.state.value : '',
       severity: els.severity ? els.severity.value : '',
-      damage: els.damage ? els.damage.value : '',
     };
   }
 
@@ -485,13 +483,11 @@ var NtsbModule = (function () {
     fillSelect(els.country, options.countries || [], '全部国家/地区', 'country');
     fillSelect(els.state, options.states || [], '全部州/地区', 'state');
     fillSelect(els.severity, options.severities || [], '全部严重度', 'severity');
-    fillSelect(els.damage, options.damages || [], '全部损坏程度', 'damage');
 
     [
       [els.country, previous.country],
       [els.state, previous.state],
       [els.severity, previous.severity],
-      [els.damage, previous.damage],
     ].forEach(function (entry) {
       if (hasOption(entry[0], entry[1])) entry[0].value = entry[1];
     });
@@ -866,14 +862,14 @@ var NtsbModule = (function () {
   function resetFilters() {
     if (els.yearFrom) els.yearFrom.value = optionYears.min || '';
     if (els.yearTo) els.yearTo.value = optionYears.max || '';
-    [els.country, els.state, els.severity, els.damage].forEach(function (select) {
+    [els.country, els.state, els.severity].forEach(function (select) {
       if (select) select.value = '';
     });
     loadDashboard();
   }
 
   function bindEvents() {
-    [els.yearFrom, els.yearTo, els.country, els.state, els.severity, els.damage].forEach(function (el) {
+    [els.yearFrom, els.yearTo, els.country, els.state, els.severity].forEach(function (el) {
       if (el) {
         el.addEventListener('change', scheduleLoad);
       }
