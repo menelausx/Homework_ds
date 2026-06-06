@@ -1370,7 +1370,7 @@ body {
 
 .ntsb-filter-grid {
   display: grid;
-  grid-template-columns: repeat(7, minmax(108px, 1fr)) auto;
+  grid-template-columns: repeat(5, minmax(108px, 1fr)) auto;
   gap: 8px;
   align-items: end;
 }
@@ -1410,6 +1410,7 @@ body {
 
 .ntsb-actions {
   display: flex;
+  grid-column: -2 / -1;
   gap: 6px;
   align-items: center;
   justify-content: flex-end;
@@ -1782,10 +1783,6 @@ body {
     grid-template-columns: repeat(4, minmax(120px, 1fr));
   }
 
-  .ntsb-actions {
-    justify-content: flex-start;
-  }
-
   .ntsb-kpi-grid {
     grid-template-columns: repeat(4, minmax(130px, 1fr));
   }
@@ -1812,5 +1809,9 @@ body {
   .ntsb-toolbar-title {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .ntsb-actions {
+    grid-column: auto;
   }
 }
