@@ -1,108 +1,78 @@
+'use strict';
+
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
+const databaseService = require('./databaseService');
+const secureCacheService = require('./security/secureCacheService');
 
 function getDataDir() {
-  if (app && app.isPackaged) {
-    return path.join(path.dirname(app.getPath('exe')), 'data');
-  }
-  return path.join(__dirname, '..', '..', 'data');
+  return databaseService.getDataDir();
 }
 
-function ensureDataDir(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-function readJsonFile(filename) {
+function ensureDataDir() {
   const dir = getDataDir();
-  ensureDataDir(dir);
-  const filePath = path.join(dir, filename);
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (err) {
-    console.error('Error reading ' + filename + ':', err.message);
-    return null;
-  }
-}
-
-function writeJsonFile(filename, data) {
-  const dir = getDataDir();
-  ensureDataDir(dir);
-  const filePath = path.join(dir, filename);
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf8');
-  } catch (err) {
-    console.error('Error writing ' + filename + ':', err.message);
-  }
-}
-
-function fileExistsInData(filename) {
-  const filePath = path.join(getDataDir(), filename);
-  return fs.existsSync(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function getDataFilePath(filename) {
-  const dir = getDataDir();
-  ensureDataDir(dir);
-  return path.join(dir, filename);
+  return path.join(ensureDataDir(), filename);
+}
+
+function fileExistsInData(filename) {
+  return fs.existsSync(getDataFilePath(filename));
+}
+
+function writeBuffer(filename, cacheId, data) {
+  secureCacheService.writeEncryptedFile(getDataFilePath(filename), cacheId, data);
+}
+
+function readBuffer(filename, cacheId) {
+  const filePath = getDataFilePath(filename);
+  if (!fs.existsSync(filePath)) return null;
+  return secureCacheService.readEncryptedFile(filePath, cacheId);
+}
+
+function writeJsonFile(filename, data) {
+  writeBuffer(filename, filename, Buffer.from(JSON.stringify(data), 'utf8'));
+}
+
+function readJsonFile(filename) {
+  const plaintext = readBuffer(filename, filename);
+  if (!plaintext) return null;
+  try {
+    return JSON.parse(plaintext.toString('utf8'));
+  } finally {
+    plaintext.fill(0);
+  }
 }
 
 function cleanRawDataCache() {
-  const dir = getDataDir();
-  ensureDataDir(dir);
-
+  const dir = ensureDataDir();
+  const protectedNames = new Set([
+    'app.db',
+    'app.db-wal',
+    'app.db-shm',
+    'keyring.json',
+    'electron-profile',
+  ]);
   const deleted = [];
   const skipped = [];
-  const protectedText = 'app.db';
 
-  function isProtected(filePath) {
-    return path.relative(dir, filePath).toLowerCase().includes(protectedText);
-  }
-
-  function removeEmptyDirectory(dirPath) {
-    if (dirPath === dir || isProtected(dirPath)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (protectedNames.has(entry.name.toLowerCase())) {
+      skipped.push({ path: entry.name, reason: 'protected' });
+      continue;
+    }
+    const target = path.join(dir, entry.name);
     try {
-      if (fs.readdirSync(dirPath).length === 0) {
-        fs.rmdirSync(dirPath);
-        deleted.push(path.relative(dir, dirPath));
-      }
-    } catch (err) {
-      skipped.push({ path: path.relative(dir, dirPath), error: err.message });
+      if (entry.isDirectory()) fs.rmSync(target, { recursive: true, force: true });
+      else fs.unlinkSync(target);
+      deleted.push(entry.name);
+    } catch (_error) {
+      skipped.push({ path: entry.name, error: 'CACHE_DELETE_FAILED' });
     }
   }
-
-  function walk(currentDir) {
-    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i];
-      const fullPath = path.join(currentDir, entry.name);
-      const relativePath = path.relative(dir, fullPath);
-
-      if (isProtected(fullPath)) {
-        skipped.push({ path: relativePath, reason: 'protected' });
-        continue;
-      }
-
-      try {
-        if (entry.isDirectory()) {
-          walk(fullPath);
-          removeEmptyDirectory(fullPath);
-        } else {
-          fs.unlinkSync(fullPath);
-          deleted.push(relativePath);
-        }
-      } catch (err) {
-        skipped.push({ path: relativePath, error: err.message });
-      }
-    }
-  }
-
-  walk(dir);
 
   return {
     success: true,
@@ -116,8 +86,10 @@ function cleanRawDataCache() {
 module.exports = {
   readJsonFile,
   writeJsonFile,
+  readBuffer,
+  writeBuffer,
   fileExistsInData,
   getDataFilePath,
   cleanRawDataCache,
-  ensureDataDir: () => ensureDataDir(getDataDir()),
+  ensureDataDir,
 };

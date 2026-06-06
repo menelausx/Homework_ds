@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getNtsbAircraftBreakdown: (filters) => ipcRenderer.invoke('ntsb:getAircraftBreakdown', filters),
   getNtsbWeatherBreakdown: (filters) => ipcRenderer.invoke('ntsb:getWeatherBreakdown', filters),
   getNtsbFindingBreakdown: (filters) => ipcRenderer.invoke('ntsb:getFindingBreakdown', filters),
+  searchNtsbNarratives: (query) => ipcRenderer.invoke('ntsb:searchNarratives', query),
+  searchNtsbFindings: (query) => ipcRenderer.invoke('ntsb:searchFindings', query),
 
   // ── Data Source Import ──────────────────────────────────────────────────
   listDataSources: () => ipcRenderer.invoke('dataSources:list'),

@@ -12,6 +12,7 @@ var NtsbModule = (function () {
   var state = {
     loading: false,
     pendingLoad: false,
+    optionsLoading: false,
     lastFiltersKey: '',
     acftMake: '',
   };
@@ -433,7 +434,8 @@ var NtsbModule = (function () {
 
   function scheduleLoad() {
     if (refreshTimer) clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(loadDashboard, 180);
+    state.lastFiltersKey = JSON.stringify(getFilters());
+    refreshTimer = setTimeout(loadDashboard, 350);
   }
 
   function setupMap() {
@@ -456,19 +458,32 @@ var NtsbModule = (function () {
     geoLayer = L.layerGroup().addTo(map);
   }
 
-  async function loadOptions() {
+  function hasOption(select, value) {
+    if (!select || value == null || value === '') return false;
+    for (var i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === String(value)) return true;
+    }
+    return false;
+  }
+
+  async function loadOptions(preserveSelection) {
+    var previous = preserveSelection ? getFilters() : {};
     var options = await window.electronAPI.getNtsbFilterOptions();
     optionYears = options.years || { min: null, max: null };
 
     if (els.yearFrom && optionYears.min != null) {
-      els.yearFrom.value = optionYears.min;
       els.yearFrom.min = optionYears.min;
       els.yearFrom.max = optionYears.max || optionYears.min;
+      els.yearFrom.value = previous.yearFrom >= optionYears.min && previous.yearFrom <= optionYears.max
+        ? previous.yearFrom
+        : optionYears.min;
     }
     if (els.yearTo && optionYears.max != null) {
-      els.yearTo.value = optionYears.max;
       els.yearTo.min = optionYears.min || optionYears.max;
       els.yearTo.max = optionYears.max;
+      els.yearTo.value = previous.yearTo >= optionYears.min && previous.yearTo <= optionYears.max
+        ? previous.yearTo
+        : optionYears.max;
     }
 
     fillSelect(els.country, options.countries || [], '全部国家/地区', 'country');
@@ -476,6 +491,28 @@ var NtsbModule = (function () {
     fillSelect(els.severity, options.severities || [], '全部严重度', 'severity');
     fillSelect(els.acftCategory, options.aircraftCategories || [], '全部飞机类别', 'acftCategory');
     fillSelect(els.damage, options.damages || [], '全部损坏程度', 'damage');
+
+    [
+      [els.country, previous.country],
+      [els.state, previous.state],
+      [els.severity, previous.severity],
+      [els.acftCategory, previous.acftCategory],
+      [els.damage, previous.damage],
+    ].forEach(function (entry) {
+      if (hasOption(entry[0], entry[1])) entry[0].value = entry[1];
+    });
+  }
+
+  async function refreshOptionsAndDashboard(preserveSelection) {
+    if (state.optionsLoading) return;
+    state.optionsLoading = true;
+    try {
+      setStatus('正在读取筛选项...');
+      await loadOptions(preserveSelection);
+      await loadDashboard();
+    } finally {
+      state.optionsLoading = false;
+    }
   }
 
   async function loadDashboard() {
@@ -782,14 +819,26 @@ var NtsbModule = (function () {
     if (!map || !geoLayer) return;
     geoLayer.clearLayers();
 
-    if (!rows.length) {
+    var validRows = rows.filter(function (row) {
+      var lat = Number(row.lat);
+      var lng = Number(row.lng);
+      return Number.isFinite(lat) && Number.isFinite(lng) && !(lat === 0 && lng === 0);
+    });
+
+    if (els.kpiGeo) {
+      els.kpiGeo.textContent = formatInt(validRows.reduce(function (sum, row) {
+        return sum + Number(row.count || 0);
+      }, 0));
+    }
+
+    if (!validRows.length) {
       return;
     }
 
-    var max = Math.max.apply(null, rows.map(function (r) { return r.count || 0; })) || 1;
+    var max = Math.max.apply(null, validRows.map(function (r) { return r.count || 0; })) || 1;
     var bounds = [];
 
-    rows.forEach(function (row) {
+    validRows.forEach(function (row) {
       var count = row.count || 0;
       var fatalRate = count ? (row.fatalCount || 0) / count : 0;
       var radius = 5 + Math.sqrt(count / max) * 22;
@@ -869,9 +918,7 @@ var NtsbModule = (function () {
     bindEvents();
 
     try {
-      setStatus('正在读取筛选项...');
-      await loadOptions();
-      await loadDashboard();
+      await refreshOptionsAndDashboard(false);
     } catch (err) {
       console.error('NTSB initialization error:', err);
       setStatus('初始化失败: ' + err.message);
@@ -886,7 +933,7 @@ var NtsbModule = (function () {
     if (map) {
       setTimeout(function () {
         map.invalidateSize();
-        loadDashboard();
+        refreshOptionsAndDashboard(true);
       }, 0);
     }
   }

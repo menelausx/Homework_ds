@@ -1,252 +1,124 @@
-// SQLite-backed analysis service.
-// All data for the FAA/OpenSky analysis page comes from the database.
-// This service never accesses external APIs, files, or network.
+'use strict';
 
 const databaseService = require('./databaseService');
+const cryptoService = require('./security/cryptoService');
+const { normalizeIcao } = require('./security/normalizers');
 
-// ── Flight Queries ─────────────────────────────────────────────────────────
+const MAX_BULK_ICAO = 2000;
+const QUERY_CHUNK = 400;
+
+function decryptPayload(row, recordType) {
+  return cryptoService.decryptJson(row.payload_cipher, {
+    recordType,
+    field: 'payload',
+    recordId: row.record_id,
+  });
+}
 
 function getLatestSnapshotTime() {
-  const db = databaseService.getDb();
-  const row = db.prepare('SELECT MAX(snapshot_time) AS snapshot_time FROM opensky_states').get();
+  const row = databaseService.getDb()
+    .prepare('SELECT MAX(snapshot_time) AS snapshot_time FROM opensky_states')
+    .get();
   return row ? row.snapshot_time : null;
 }
 
 function getFlights() {
-  const db = databaseService.getDb();
   const snapshotTime = getLatestSnapshotTime();
-  if (snapshotTime === null) {
-    return { time: 0, cacheTime: null, states: [], snapshotTime: null };
-  }
-
-  const rows = db.prepare(`
-    SELECT
-      icao24, callsign, origin_country, time_position, last_contact,
-      longitude, latitude, baro_altitude, on_ground, velocity, true_track,
-      vertical_rate, sensors, geo_altitude, squawk, spi, position_source
+  if (snapshotTime == null) return { time: 0, cacheTime: null, states: [], snapshotTime: null };
+  const rows = databaseService.getDb().prepare(`
+    SELECT record_id, payload_cipher
     FROM opensky_states
     WHERE snapshot_time = ?
-    ORDER BY icao24
   `).all(snapshotTime);
-
-  const states = rows.map(function (row) {
-    return {
-      icao24: row.icao24,
-      callsign: row.callsign || '',
-      origin_country: row.origin_country || '',
-      time_position: row.time_position || 0,
-      last_contact: row.last_contact || 0,
-      longitude: row.longitude,
-      latitude: row.latitude,
-      baro_altitude: row.baro_altitude,
-      on_ground: row.on_ground === 1,
-      velocity: row.velocity,
-      true_track: row.true_track,
-      vertical_rate: row.vertical_rate,
-      sensors: row.sensors,
-      geo_altitude: row.geo_altitude,
-      squawk: row.squawk,
-      spi: row.spi,
-      position_source: row.position_source,
-    };
-  });
-
+  const states = rows.map((row) => decryptPayload(row, 'opensky_states'));
+  states.sort((left, right) => left.icao24.localeCompare(right.icao24));
   return {
     time: snapshotTime,
-    cacheTime: snapshotTime ? new Date(snapshotTime * 1000).toISOString() : null,
-    states: states,
-    snapshotTime: snapshotTime,
+    cacheTime: new Date(snapshotTime * 1000).toISOString(),
+    states,
+    snapshotTime,
   };
 }
 
 function getFlight(icao24) {
-  if (!icao24) return null;
-  const db = databaseService.getDb();
-  const key = icao24.toLowerCase().trim();
+  const normalized = normalizeIcao(icao24);
+  if (!normalized || normalized.length > 32) return null;
   const snapshotTime = getLatestSnapshotTime();
-  if (snapshotTime === null) return null;
-
-  const row = db.prepare(`
-    SELECT * FROM opensky_states
-    WHERE icao24 = ? AND snapshot_time = ?
+  if (snapshotTime == null) return null;
+  const token = cryptoService.blindIndex(cryptoService.DOMAINS.ICAO_JOIN, normalized);
+  const row = databaseService.getDb().prepare(`
+    SELECT record_id, payload_cipher
+    FROM opensky_states
+    WHERE icao_token = ? AND snapshot_time = ?
     LIMIT 1
-  `).get(key, snapshotTime);
-
-  if (!row) return null;
-
-  return {
-    icao24: row.icao24,
-    callsign: row.callsign || '',
-    origin_country: row.origin_country || '',
-    time_position: row.time_position,
-    last_contact: row.last_contact,
-    longitude: row.longitude,
-    latitude: row.latitude,
-    baro_altitude: row.baro_altitude,
-    on_ground: row.on_ground === 1,
-    velocity: row.velocity,
-    true_track: row.true_track,
-    vertical_rate: row.vertical_rate,
-    sensors: row.sensors,
-    geo_altitude: row.geo_altitude,
-    squawk: row.squawk,
-    spi: row.spi === 1,
-    position_source: row.position_source,
-  };
+  `).get(token, snapshotTime);
+  return row ? decryptPayload(row, 'opensky_states') : null;
 }
 
-// ── FAA Aircraft Queries ───────────────────────────────────────────────────
-
 function getFaaInfo(icao24) {
-  if (!icao24) return null;
-  const db = databaseService.getDb();
-  const key = icao24.toLowerCase().trim();
-
-  const row = db.prepare(`
-    SELECT * FROM faa_aircraft
-    WHERE mode_s_code_hex = ?
+  const normalized = normalizeIcao(icao24);
+  if (!normalized || normalized.length > 32) return null;
+  const token = cryptoService.blindIndex(cryptoService.DOMAINS.ICAO_JOIN, normalized);
+  const row = databaseService.getDb().prepare(`
+    SELECT id, record_id, payload_cipher
+    FROM faa_aircraft
+    WHERE mode_s_token = ?
     LIMIT 1
-  `).get(key);
-
+  `).get(token);
   if (!row) return null;
-
-  // Map column names to the format expected by the renderer (FAA CSV headers)
-  return {
-    'N-NUMBER': row.n_number,
-    'SERIAL NUMBER': row.serial_number,
-    'MFR MDL CODE': row.mfr_mdl_code,
-    'ENG MFR MDL': row.eng_mfr_mdl,
-    'YEAR MFR': row.year_mfr,
-    'TYPE REGISTRANT': row.type_registrant,
-    'NAME': row.name,
-    'STREET': row.street,
-    'STREET2': row.street2,
-    'CITY': row.city,
-    'STATE': row.state,
-    'ZIP CODE': row.zip_code,
-    'REGION': row.region,
-    'COUNTY': row.county,
-    'COUNTRY': row.country,
-    'LAST ACTION DATE': row.last_action_date,
-    'CERT ISSUE DATE': row.cert_issue_date,
-    'CERTIFICATION': row.certification,
-    'TYPE AIRCRAFT': row.type_aircraft,
-    'TYPE ENGINE': row.type_engine,
-    'STATUS CODE': row.status_code,
-    'MODE S CODE': row.mode_s_code,
-    'FRACT OWNER': row.fract_owner,
-    'AIR WORTH DATE': row.air_worth_date,
-    'EXPIRATION DATE': row.expiration_date,
-    'UNIQUE ID': row.unique_id,
-    'KIT MFR': row.kit_mfr,
-    'KIT MODEL': row.kit_model,
-    'MODE S CODE HEX': row.mode_s_code_hex,
-    '_id': row.id,
-  };
+  return { ...decryptPayload(row, 'faa_aircraft'), _id: row.id };
 }
 
 function getFaaInfoBulk(icao24List) {
-  if (!icao24List || !Array.isArray(icao24List) || icao24List.length === 0) {
-    return {};
-  }
+  if (!Array.isArray(icao24List) || icao24List.length === 0) return {};
+  const normalized = [...new Set(icao24List.slice(0, MAX_BULK_ICAO)
+    .map(normalizeIcao)
+    .filter((value) => value && value.length <= 32))];
+  const result = {};
+  const db = databaseService.getDb();
 
-  // Build keys (lowercase)
-  var keys = [];
-  for (var i = 0; i < icao24List.length; i++) {
-    if (icao24List[i]) {
-      keys.push(icao24List[i].toLowerCase().trim());
+  for (let offset = 0; offset < normalized.length; offset += QUERY_CHUNK) {
+    const values = normalized.slice(offset, offset + QUERY_CHUNK);
+    const tokens = values.map((value) => cryptoService.blindIndex(cryptoService.DOMAINS.ICAO_JOIN, value));
+    const placeholders = tokens.map(() => '?').join(', ');
+    const rows = db.prepare(`
+      SELECT id, record_id, payload_cipher
+      FROM faa_aircraft
+      WHERE mode_s_token IN (${placeholders})
+    `).all(...tokens);
+    for (const row of rows) {
+      const payload = decryptPayload(row, 'faa_aircraft');
+      const key = normalizeIcao(payload['MODE S CODE HEX']);
+      if (key) result[key] = { ...payload, _id: row.id };
     }
   }
-  if (keys.length === 0) return {};
-
-  // SQLite max variable number is 999 by default; chunk at 500
-  var result = {};
-  var CHUNK = 500;
-  for (var offset = 0; offset < keys.length; offset += CHUNK) {
-    var chunk = keys.slice(offset, offset + CHUNK);
-    var placeholders = chunk.map(function () { return '?'; }).join(', ');
-
-    var db = databaseService.getDb();
-    var stmt = db.prepare(
-      'SELECT * FROM faa_aircraft WHERE mode_s_code_hex IN (' + placeholders + ')'
-    );
-    var rows = stmt.all.apply(stmt, chunk);
-
-    for (var j = 0; j < rows.length; j++) {
-      var row = rows[j];
-      result[row.mode_s_code_hex] = {
-        'N-NUMBER': row.n_number,
-        'SERIAL NUMBER': row.serial_number,
-        'MFR MDL CODE': row.mfr_mdl_code,
-        'ENG MFR MDL': row.eng_mfr_mdl,
-        'YEAR MFR': row.year_mfr,
-        'TYPE REGISTRANT': row.type_registrant,
-        'NAME': row.name,
-        'STREET': row.street,
-        'STREET2': row.street2,
-        'CITY': row.city,
-        'STATE': row.state,
-        'ZIP CODE': row.zip_code,
-        'REGION': row.region,
-        'COUNTY': row.county,
-        'COUNTRY': row.country,
-        'LAST ACTION DATE': row.last_action_date,
-        'CERT ISSUE DATE': row.cert_issue_date,
-        'CERTIFICATION': row.certification,
-        'TYPE AIRCRAFT': row.type_aircraft,
-        'TYPE ENGINE': row.type_engine,
-        'STATUS CODE': row.status_code,
-        'MODE S CODE': row.mode_s_code,
-        'FRACT OWNER': row.fract_owner,
-        'AIR WORTH DATE': row.air_worth_date,
-        'EXPIRATION DATE': row.expiration_date,
-        'UNIQUE ID': row.unique_id,
-        'KIT MFR': row.kit_mfr,
-        'KIT MODEL': row.kit_model,
-        'MODE S CODE HEX': row.mode_s_code_hex,
-        '_id': row.id,
-      };
-    }
-  }
-
   return result;
 }
 
-// ── Statistics ─────────────────────────────────────────────────────────────
-
 function getStatistics() {
-  var db = databaseService.getDb();
-
-  var flightCount = db.prepare(
-    'SELECT COUNT(DISTINCT icao24) AS count FROM opensky_states WHERE snapshot_time = (SELECT MAX(snapshot_time) FROM opensky_states)'
-  ).get().count || 0;
-
-  var snapshotTime = getLatestSnapshotTime();
-
-  var faaTotalRecords = db.prepare('SELECT COUNT(*) AS count FROM faa_aircraft').get().count || 0;
-
-  // Count flights with FAA match (icao24 present in faa_aircraft.mode_s_code_hex)
-  var faaMatched = 0;
-  if (snapshotTime !== null) {
-    faaMatched = db.prepare(`
-      SELECT COUNT(DISTINCT o.icao24) AS count
-      FROM opensky_states o
-      INNER JOIN faa_aircraft f ON o.icao24 = f.mode_s_code_hex
-      WHERE o.snapshot_time = ?
-    `).get(snapshotTime).count || 0;
-  }
-
+  const db = databaseService.getDb();
+  const snapshotTime = getLatestSnapshotTime();
+  const flightCount = snapshotTime == null ? 0 : db.prepare(`
+    SELECT COUNT(DISTINCT icao_token) AS count
+    FROM opensky_states
+    WHERE snapshot_time = ?
+  `).get(snapshotTime).count;
+  const faaTotalRecords = db.prepare('SELECT COUNT(*) AS count FROM faa_aircraft').get().count;
+  const faaMatched = snapshotTime == null ? 0 : db.prepare(`
+    SELECT COUNT(DISTINCT o.icao_token) AS count
+    FROM opensky_states o
+    INNER JOIN faa_aircraft f ON f.mode_s_token = o.icao_token
+    WHERE o.snapshot_time = ?
+  `).get(snapshotTime).count;
   return {
-    flightCount: flightCount,
-    faaMatched: faaMatched,
-    faaTotalRecords: faaTotalRecords,
+    flightCount,
+    faaMatched,
+    faaTotalRecords,
     faaLoaded: faaTotalRecords > 0,
     faaError: null,
-    snapshotTime: snapshotTime,
+    snapshotTime,
   };
 }
-
-// ── Exports ────────────────────────────────────────────────────────────────
 
 module.exports = {
   getFlights,

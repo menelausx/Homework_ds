@@ -6,7 +6,9 @@
   "scripts": {
     "postinstall": "electron-builder install-app-deps",
     "start": "electron .",
-    "build": "electron-builder --win portable"
+    "build": "electron-builder --win portable",
+    "test": "node --test --test-isolation=none test/security.test.js",
+    "test:electron": "electron test/electron-smoke.js"
   },
   "author": "",
   "license": "ISC",

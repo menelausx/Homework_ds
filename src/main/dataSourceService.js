@@ -18,6 +18,10 @@ const sourceErrors = new Map();
 // Track in-progress phases per source
 const sourcePhases = new Map();
 
+function publicError(err) {
+  return err && typeof err.code === 'string' ? err.code : 'DATA_SOURCE_OPERATION_FAILED';
+}
+
 function listSources() {
   const result = [];
   registry.forEach(function (ds) {
@@ -49,9 +53,10 @@ function wrapAction(sourceId, actionName, actionFn) {
       return result;
     } catch (err) {
       sourcePhases.delete(sourceId);
-      sourceErrors.set(sourceId, err.message);
-      console.error('[dataSourceService] Error in ' + sourceId + '.' + actionName + ':', err.message);
-      return { success: false, error: err.message };
+      const code = publicError(err);
+      sourceErrors.set(sourceId, code);
+      console.error('[dataSourceService] ' + sourceId + '.' + actionName + ' failed:', code);
+      return { success: false, error: code };
     }
   };
 }
@@ -90,9 +95,10 @@ function wrapUpdateAll(sourceId, ds) {
       return result;
     } catch (err) {
       sourcePhases.delete(sourceId);
-      sourceErrors.set(sourceId, err.message);
-      console.error('[dataSourceService] Error in ' + sourceId + '.updateAll:', err.message);
-      return { success: false, error: err.message, phases: ['failed'] };
+      const code = publicError(err);
+      sourceErrors.set(sourceId, code);
+      console.error('[dataSourceService] ' + sourceId + '.updateAll failed:', code);
+      return { success: false, error: code, phases: ['failed'] };
     }
   };
 }

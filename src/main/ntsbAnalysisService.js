@@ -1,4 +1,14 @@
+'use strict';
+
 const databaseService = require('./databaseService');
+const cryptoService = require('./security/cryptoService');
+const dimensionService = require('./security/dimensionService');
+const searchIndexService = require('./security/searchIndexService');
+const {
+  normalizeUpperCode,
+  normalizeInteger,
+  normalizeDimension,
+} = require('./security/normalizers');
 
 const EMPTY_OVERVIEW = {
   totalEvents: 0,
@@ -10,41 +20,29 @@ const EMPTY_OVERVIEW = {
   topRegion: null,
 };
 
-function quoteIdentifier(identifier) {
-  return '"' + String(identifier).replace(/"/g, '""') + '"';
+function hasData(db) {
+  return databaseService.tableExists(db, 'ntsb_event_facts')
+    && db.prepare('SELECT 1 FROM ntsb_event_facts LIMIT 1').get();
 }
 
-function tableExists(db, tableName) {
-  const row = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?"
-  ).get(tableName);
-  return !!row;
-}
-
-function getNtsbDb() {
-  const db = databaseService.getDb();
-  if (!tableExists(db, 'ntsb_events')) {
-    return null;
-  }
-  return db;
+function dimToken(domain, value, normalizer) {
+  return dimensionService.tokenFor(domain, value, normalizer);
 }
 
 function normalizeFilters(filters) {
-  filters = filters || {};
-  const normalized = {};
-
-  const yearFrom = parseInt(filters.yearFrom, 10);
-  const yearTo = parseInt(filters.yearTo, 10);
-  if (!Number.isNaN(yearFrom)) normalized.yearFrom = yearFrom;
-  if (!Number.isNaN(yearTo)) normalized.yearTo = yearTo;
-
-  ['country', 'state', 'severity', 'acftCategory', 'acftMake', 'damage'].forEach(function (key) {
-    if (filters[key] != null && String(filters[key]).trim() !== '') {
-      normalized[key] = String(filters[key]).trim();
-    }
-  });
-
-  return normalized;
+  const input = filters && typeof filters === 'object' ? filters : {};
+  const result = {};
+  const from = Number.parseInt(input.yearFrom, 10);
+  const to = Number.parseInt(input.yearTo, 10);
+  if (Number.isFinite(from)) result.yearFrom = Math.max(1900, Math.min(2100, from));
+  if (Number.isFinite(to)) result.yearTo = Math.max(1900, Math.min(2100, to));
+  if (result.yearFrom != null && result.yearTo != null && result.yearFrom > result.yearTo) {
+    [result.yearFrom, result.yearTo] = [result.yearTo, result.yearFrom];
+  }
+  for (const key of ['country', 'state', 'severity', 'acftCategory', 'acftMake', 'damage']) {
+    if (input[key] != null && String(input[key]).trim()) result[key] = String(input[key]).slice(0, 256);
+  }
+  return result;
 }
 
 function buildFilteredEventsCte(filters) {
@@ -53,88 +51,78 @@ function buildFilteredEventsCte(filters) {
   const aircraftWhere = [];
   const params = {};
 
-  if (f.yearFrom != null) {
-    where.push('e.ev_year >= @yearFrom');
-    params.yearFrom = f.yearFrom;
-  }
-  if (f.yearTo != null) {
-    where.push('e.ev_year <= @yearTo');
-    params.yearTo = f.yearTo;
+  if (f.yearFrom != null || f.yearTo != null) {
+    const min = f.yearFrom == null ? f.yearTo : f.yearFrom;
+    const max = f.yearTo == null ? f.yearFrom : f.yearTo;
+    const placeholders = [];
+    for (let year = min; year <= max; year++) {
+      const name = 'year' + year;
+      placeholders.push('@' + name);
+      params[name] = dimToken('ntsb.year', year, normalizeInteger);
+    }
+    where.push('e.year_token IN (' + placeholders.join(', ') + ')');
   }
   if (f.country) {
-    where.push('TRIM(COALESCE(e.ev_country, \'\')) = @country');
-    params.country = f.country;
+    where.push('e.country_token = @country');
+    params.country = dimToken('ntsb.country', normalizeDimension(f.country));
   }
   if (f.state) {
-    where.push('TRIM(COALESCE(e.ev_state, \'\')) = @state');
-    params.state = f.state;
+    where.push('e.state_token = @state');
+    params.state = dimToken('ntsb.state', normalizeDimension(f.state));
   }
   if (f.severity) {
-    where.push('TRIM(COALESCE(e.ev_highest_injury, \'\')) = @severity');
-    params.severity = f.severity;
+    where.push('e.severity_token = @severity');
+    params.severity = dimToken('ntsb.severity', normalizeUpperCode(f.severity), normalizeUpperCode);
   }
   if (f.acftCategory) {
-    aircraftWhere.push('TRIM(COALESCE(a.acft_category, \'\')) = @acftCategory');
-    params.acftCategory = f.acftCategory;
+    aircraftWhere.push('a.category_token = @acftCategory');
+    params.acftCategory = dimToken('ntsb.aircraft_category', normalizeDimension(f.acftCategory));
   }
   if (f.acftMake) {
-    aircraftWhere.push('UPPER(TRIM(COALESCE(a.acft_make, \'\'))) = @acftMake');
-    params.acftMake = f.acftMake.toUpperCase();
+    aircraftWhere.push('a.make_token = @acftMake');
+    params.acftMake = dimToken('ntsb.aircraft_make', normalizeUpperCode(f.acftMake), normalizeUpperCode);
   }
   if (f.damage) {
-    aircraftWhere.push('TRIM(COALESCE(a.damage, \'\')) = @damage');
-    params.damage = f.damage;
+    aircraftWhere.push('a.damage_token = @damage');
+    params.damage = dimToken('ntsb.damage', normalizeDimension(f.damage));
   }
   if (aircraftWhere.length) {
     where.push(
-      'EXISTS (SELECT 1 FROM ntsb_aircraft a WHERE a.ev_id = e.ev_id AND ' +
-      aircraftWhere.join(' AND ') +
-      ')'
+      'EXISTS (SELECT 1 FROM ntsb_aircraft_facts a WHERE a.event_token = e.event_token AND '
+      + aircraftWhere.join(' AND ') + ')'
     );
   }
 
   return {
-    sql:
-      'WITH filtered_events AS (' +
-      ' SELECT e.* FROM ntsb_events e' +
-      (where.length ? ' WHERE ' + where.join(' AND ') : '') +
-      ')',
+    sql: `
+      WITH filtered_events AS (
+        SELECT
+          e.event_token, e.year_token, e.country_token, e.state_token,
+          e.severity_token, e.light_condition_token, e.weather_condition_token,
+          e.visibility_bucket_token, e.wind_bucket_token, e.geo_cell_token,
+          e.has_geo_token, e.has_narrative_token, e.fatal_token
+        FROM ntsb_event_facts e
+        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      )
+    `,
     params,
   };
 }
 
-function runAll(db, sql, params) {
-  return db.prepare(sql).all(params || {});
-}
-
-function runGet(db, sql, params) {
-  return db.prepare(sql).get(params || {});
-}
-
-function severityExpr(alias) {
-  return "COALESCE(NULLIF(TRIM(" + alias + ".ev_highest_injury), ''), 'UNKNOWN')";
-}
-
-function fatalExpr(alias) {
-  return "CASE WHEN UPPER(TRIM(COALESCE(" + alias + ".ev_highest_injury, ''))) = 'FATL' THEN 1 ELSE 0 END";
-}
-
-function countDistinctNarrativesSql() {
-  return `
-    SELECT COUNT(DISTINCT n.ev_id) AS count
-    FROM ntsb_narratives n
-    INNER JOIN filtered_events f ON f.ev_id = n.ev_id
-    WHERE
-      NULLIF(TRIM(COALESCE(n.narr_accp, '')), '') IS NOT NULL OR
-      NULLIF(TRIM(COALESCE(n.narr_accf, '')), '') IS NOT NULL OR
-      NULLIF(TRIM(COALESCE(n.narr_cause, '')), '') IS NOT NULL OR
-      NULLIF(TRIM(COALESCE(n.narr_inc, '')), '') IS NOT NULL
-  `;
+function resolveGroups(db, domain, rows, tokenField, labelField) {
+  const values = dimensionService.getMany(domain, rows.map((row) => row[tokenField]), db);
+  return rows.map((row) => {
+    const result = { ...row };
+    const token = row[tokenField];
+    result[labelField] = token ? values.get(Buffer.from(token).toString('hex')) : null;
+    delete result[tokenField];
+    return result;
+  });
 }
 
 function getFilterOptions() {
-  const db = getNtsbDb();
-  if (!db) {
+  const db = databaseService.getDb();
+  if (!hasData(db)) {
     return {
       years: { min: null, max: null },
       countries: [],
@@ -144,333 +132,258 @@ function getFilterOptions() {
       damages: [],
     };
   }
-
-  const years = runGet(db, 'SELECT MIN(ev_year) AS min, MAX(ev_year) AS max FROM ntsb_events WHERE ev_year IS NOT NULL') || {};
-  const countries = runAll(db, `
-    SELECT TRIM(ev_country) AS value, COUNT(*) AS count
-    FROM ntsb_events
-    WHERE NULLIF(TRIM(COALESCE(ev_country, '')), '') IS NOT NULL
-    GROUP BY TRIM(ev_country)
-    ORDER BY count DESC, value
-    LIMIT 120
-  `);
-  const states = runAll(db, `
-    SELECT TRIM(ev_state) AS value, COUNT(*) AS count
-    FROM ntsb_events
-    WHERE NULLIF(TRIM(COALESCE(ev_state, '')), '') IS NOT NULL
-    GROUP BY TRIM(ev_state)
-    ORDER BY count DESC, value
-    LIMIT 120
-  `);
-  const severities = runAll(db, `
-    SELECT TRIM(ev_highest_injury) AS value, COUNT(*) AS count
-    FROM ntsb_events
-    WHERE NULLIF(TRIM(COALESCE(ev_highest_injury, '')), '') IS NOT NULL
-    GROUP BY TRIM(ev_highest_injury)
-    ORDER BY count DESC, value
-  `);
-  const aircraftCategories = tableExists(db, 'ntsb_aircraft') ? runAll(db, `
-    SELECT TRIM(acft_category) AS value, COUNT(*) AS count
-    FROM ntsb_aircraft
-    WHERE NULLIF(TRIM(COALESCE(acft_category, '')), '') IS NOT NULL
-    GROUP BY TRIM(acft_category)
-    ORDER BY count DESC, value
-    LIMIT 80
-  `) : [];
-  const damages = tableExists(db, 'ntsb_aircraft') ? runAll(db, `
-    SELECT TRIM(damage) AS value, COUNT(*) AS count
-    FROM ntsb_aircraft
-    WHERE NULLIF(TRIM(COALESCE(damage, '')), '') IS NOT NULL
-    GROUP BY TRIM(damage)
-    ORDER BY count DESC, value
-  `) : [];
-
+  const grouped = (table, field, limit) => db.prepare(`
+    SELECT ${field} AS token, COUNT(*) AS count
+    FROM ${table}
+    WHERE ${field} IS NOT NULL
+    GROUP BY ${field}
+    ORDER BY count DESC
+    ${limit ? 'LIMIT ' + limit : ''}
+  `).all();
+  const yearRows = resolveGroups(db, 'ntsb.year', grouped('ntsb_event_facts', 'year_token'), 'token', 'value')
+    .map((row) => ({ ...row, value: Number(row.value) }))
+    .sort((a, b) => a.value - b.value);
   return {
-    years,
-    countries,
-    states,
-    severities,
-    aircraftCategories,
-    damages,
+    years: {
+      min: yearRows.length ? yearRows[0].value : null,
+      max: yearRows.length ? yearRows[yearRows.length - 1].value : null,
+    },
+    countries: resolveGroups(db, 'ntsb.country', grouped('ntsb_event_facts', 'country_token', 120), 'token', 'value'),
+    states: resolveGroups(db, 'ntsb.state', grouped('ntsb_event_facts', 'state_token', 120), 'token', 'value'),
+    severities: resolveGroups(db, 'ntsb.severity', grouped('ntsb_event_facts', 'severity_token'), 'token', 'value'),
+    aircraftCategories: resolveGroups(db, 'ntsb.aircraft_category', grouped('ntsb_aircraft_facts', 'category_token', 80), 'token', 'value'),
+    damages: resolveGroups(db, 'ntsb.damage', grouped('ntsb_aircraft_facts', 'damage_token'), 'token', 'value'),
   };
 }
 
 function getOverview(filters) {
-  const db = getNtsbDb();
-  if (!db) return EMPTY_OVERVIEW;
-
+  const db = databaseService.getDb();
+  if (!hasData(db)) return EMPTY_OVERVIEW;
   const cte = buildFilteredEventsCte(filters);
-  const row = runGet(db, cte.sql + `
+  const params = {
+    ...cte.params,
+    fatal: dimToken('ntsb.fatal', '1'),
+    yesGeo: dimToken('ntsb.has_geo', '1'),
+    yesNarrative: dimToken('ntsb.has_narrative', '1'),
+  };
+  const row = db.prepare(cte.sql + `
     SELECT
       COUNT(*) AS totalEvents,
-      SUM(${fatalExpr('f')}) AS fatalEvents,
-      SUM(CASE WHEN f.dec_latitude IS NOT NULL AND f.dec_longitude IS NOT NULL THEN 1 ELSE 0 END) AS geoEventCount
-    FROM filtered_events f
-  `, cte.params) || {};
-
-  const aircraft = tableExists(db, 'ntsb_aircraft') ? runGet(db, cte.sql + `
+      SUM(CASE WHEN fatal_token = @fatal THEN 1 ELSE 0 END) AS fatalEvents,
+      SUM(CASE WHEN has_geo_token = @yesGeo THEN 1 ELSE 0 END) AS geoEventCount,
+      SUM(CASE WHEN has_narrative_token = @yesNarrative THEN 1 ELSE 0 END) AS narrativeEventCount
+    FROM filtered_events
+  `).get(params);
+  const aircraft = db.prepare(cte.sql + `
     SELECT COUNT(*) AS aircraftCount
-    FROM ntsb_aircraft a
-    INNER JOIN filtered_events f ON f.ev_id = a.ev_id
-  `, cte.params) : { aircraftCount: 0 };
-
-  const narratives = tableExists(db, 'ntsb_narratives') ? runGet(db, cte.sql + countDistinctNarrativesSql(), cte.params) : { count: 0 };
-
-  const topRegion = runGet(db, cte.sql + `
-    SELECT
-      COALESCE(NULLIF(TRIM(f.ev_country), ''), 'UNKNOWN') AS country,
-      COALESCE(NULLIF(TRIM(f.ev_state), ''), '') AS state,
-      COUNT(*) AS count
-    FROM filtered_events f
-    GROUP BY country, state
+    FROM ntsb_aircraft_facts a
+    INNER JOIN filtered_events f ON f.event_token = a.event_token
+  `).get(cte.params);
+  const top = db.prepare(cte.sql + `
+    SELECT country_token, state_token, COUNT(*) AS count
+    FROM filtered_events
+    GROUP BY country_token, state_token
     ORDER BY count DESC
     LIMIT 1
-  `, cte.params);
-
+  `).get(cte.params);
   const total = row.totalEvents || 0;
-  const fatal = row.fatalEvents || 0;
   return {
     totalEvents: total,
-    fatalEvents: fatal,
-    fatalRate: total ? fatal / total : 0,
+    fatalEvents: row.fatalEvents || 0,
+    fatalRate: total ? (row.fatalEvents || 0) / total : 0,
     aircraftCount: aircraft.aircraftCount || 0,
     geoEventCount: row.geoEventCount || 0,
-    narrativeEventCount: narratives.count || 0,
-    topRegion: topRegion || null,
+    narrativeEventCount: row.narrativeEventCount || 0,
+    topRegion: top ? {
+      country: dimensionService.get('ntsb.country', top.country_token, db),
+      state: dimensionService.get('ntsb.state', top.state_token, db),
+      count: top.count,
+    } : null,
   };
 }
 
 function getYearlyTrend(filters) {
-  const db = getNtsbDb();
-  if (!db) return [];
-
+  const db = databaseService.getDb();
+  if (!hasData(db)) return [];
   const cte = buildFilteredEventsCte(filters);
-  return runAll(db, cte.sql + `
-    SELECT
-      f.ev_year AS year,
-      COUNT(*) AS total,
-      SUM(${fatalExpr('f')}) AS fatal,
-      SUM(CASE WHEN UPPER(${severityExpr('f')}) = 'SERS' THEN 1 ELSE 0 END) AS serious,
-      SUM(CASE WHEN UPPER(${severityExpr('f')}) = 'MINR' THEN 1 ELSE 0 END) AS minor,
-      SUM(CASE WHEN UPPER(${severityExpr('f')}) = 'NONE' THEN 1 ELSE 0 END) AS none,
-      SUM(CASE WHEN UPPER(${severityExpr('f')}) NOT IN ('FATL', 'SERS', 'MINR', 'NONE') THEN 1 ELSE 0 END) AS other
-    FROM filtered_events f
-    WHERE f.ev_year IS NOT NULL
-    GROUP BY f.ev_year
-    ORDER BY f.ev_year
-  `, cte.params);
+  const rows = db.prepare(cte.sql + `
+    SELECT year_token, severity_token, COUNT(*) AS count
+    FROM filtered_events
+    WHERE year_token IS NOT NULL
+    GROUP BY year_token, severity_token
+  `).all(cte.params);
+  const byYear = new Map();
+  for (const row of rows) {
+    const year = Number(dimensionService.get('ntsb.year', row.year_token, db));
+    const severity = String(dimensionService.get('ntsb.severity', row.severity_token, db) || 'UNKNOWN').toUpperCase();
+    if (!byYear.has(year)) byYear.set(year, { year, total: 0, fatal: 0, serious: 0, minor: 0, none: 0, other: 0 });
+    const item = byYear.get(year);
+    item.total += row.count;
+    if (severity === 'FATL') item.fatal += row.count;
+    else if (severity === 'SERS') item.serious += row.count;
+    else if (severity === 'MINR') item.minor += row.count;
+    else if (severity === 'NONE') item.none += row.count;
+    else item.other += row.count;
+  }
+  return [...byYear.values()].sort((a, b) => a.year - b.year);
 }
 
 function getSeverityDistribution(filters) {
-  const db = getNtsbDb();
-  if (!db) return [];
-
+  const db = databaseService.getDb();
+  if (!hasData(db)) return [];
   const cte = buildFilteredEventsCte(filters);
-  return runAll(db, cte.sql + `
-    SELECT ${severityExpr('f')} AS severity, COUNT(*) AS count
-    FROM filtered_events f
-    GROUP BY severity
+  const rows = db.prepare(cte.sql + `
+    SELECT severity_token, COUNT(*) AS count
+    FROM filtered_events
+    GROUP BY severity_token
     ORDER BY count DESC
-  `, cte.params);
+  `).all(cte.params);
+  return resolveGroups(db, 'ntsb.severity', rows, 'severity_token', 'severity');
 }
 
 function getGeoAggregation(filters) {
-  const db = getNtsbDb();
-  if (!db) return [];
-
+  const db = databaseService.getDb();
+  if (!hasData(db)) return [];
   const cte = buildFilteredEventsCte(filters);
-  return runAll(db, cte.sql + `
+  const rows = db.prepare(cte.sql + `
     SELECT
-      ROUND(f.dec_latitude * 2.0) / 2.0 AS lat,
-      ROUND(f.dec_longitude * 2.0) / 2.0 AS lng,
-      COALESCE(NULLIF(TRIM(f.ev_country), ''), 'UNKNOWN') AS country,
-      COALESCE(NULLIF(TRIM(f.ev_state), ''), '') AS state,
+      geo_cell_token,
       COUNT(*) AS count,
-      SUM(${fatalExpr('f')}) AS fatalCount
-    FROM filtered_events f
-    WHERE
-      f.dec_latitude IS NOT NULL AND f.dec_longitude IS NOT NULL AND
-      f.dec_latitude BETWEEN -90 AND 90 AND f.dec_longitude BETWEEN -180 AND 180
-    GROUP BY lat, lng, country, state
+      SUM(CASE WHEN fatal_token = @fatal THEN 1 ELSE 0 END) AS fatalCount
+    FROM filtered_events
+    WHERE geo_cell_token IS NOT NULL
+    GROUP BY geo_cell_token
     ORDER BY count DESC
     LIMIT 650
-  `, cte.params);
+  `).all({ ...cte.params, fatal: dimToken('ntsb.fatal', '1') });
+  const geoValues = dimensionService.getMany(
+    'ntsb.geo_cell',
+    rows.map((row) => row.geo_cell_token),
+    db
+  );
+  return rows.map((row) => {
+    const geo = geoValues.get(Buffer.from(row.geo_cell_token).toString('hex'));
+    return geo ? {
+      ...geo,
+      count: row.count,
+      fatalCount: row.fatalCount || 0,
+    } : null;
+  }).filter((row) => (
+    row
+    && Number.isFinite(Number(row.lat))
+    && Number.isFinite(Number(row.lng))
+    && !(Number(row.lat) === 0 && Number(row.lng) === 0)
+  ));
+}
+
+function groupedAircraft(db, cte, field, domain, limit) {
+  const rows = db.prepare(cte.sql + `
+    SELECT a.${field} AS token, COUNT(*) AS count
+    FROM ntsb_aircraft_facts a
+    INNER JOIN filtered_events f ON f.event_token = a.event_token
+    GROUP BY a.${field}
+    ORDER BY count DESC
+    ${limit ? 'LIMIT ' + limit : ''}
+  `).all(cte.params);
+  return resolveGroups(db, domain, rows, 'token', 'label');
 }
 
 function getAircraftBreakdown(filters) {
-  const db = getNtsbDb();
-  if (!db || !tableExists(db, 'ntsb_aircraft')) {
-    return { categories: [], makes: [], models: [], damages: [], ageBuckets: [] };
-  }
-
+  const db = databaseService.getDb();
+  if (!hasData(db)) return { categories: [], makes: [], models: [], damages: [], ageBuckets: [] };
   const cte = buildFilteredEventsCte(filters);
-  const join = ' FROM ntsb_aircraft a INNER JOIN filtered_events f ON f.ev_id = a.ev_id ';
-
   return {
-    categories: runAll(db, cte.sql + `
-      SELECT COALESCE(NULLIF(TRIM(a.acft_category), ''), 'UNKNOWN') AS label, COUNT(*) AS count
-      ${join}
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    makes: runAll(db, cte.sql + `
-      SELECT COALESCE(NULLIF(UPPER(TRIM(a.acft_make)), ''), 'UNKNOWN') AS label, COUNT(*) AS count
-      ${join}
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    models: runAll(db, cte.sql + `
-      SELECT COALESCE(NULLIF(UPPER(TRIM(a.acft_model)), ''), 'UNKNOWN') AS label, COUNT(*) AS count
-      ${join}
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    damages: runAll(db, cte.sql + `
-      SELECT COALESCE(NULLIF(TRIM(a.damage), ''), 'UNKNOWN') AS label, COUNT(*) AS count
-      ${join}
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    ageBuckets: runAll(db, cte.sql + `
-      SELECT
-        CASE
-          WHEN a.acft_year IS NULL OR a.acft_year <= 0 OR f.ev_year IS NULL THEN '未知'
-          WHEN f.ev_year - a.acft_year < 0 THEN '未知'
-          WHEN f.ev_year - a.acft_year < 10 THEN '0-9'
-          WHEN f.ev_year - a.acft_year < 20 THEN '10-19'
-          WHEN f.ev_year - a.acft_year < 30 THEN '20-29'
-          WHEN f.ev_year - a.acft_year < 40 THEN '30-39'
-          ELSE '40+'
-        END AS label,
-        COUNT(*) AS count,
-        SUM(${fatalExpr('f')}) AS fatalCount
-      ${join}
-      GROUP BY label
-      ORDER BY
-        CASE label
-          WHEN '0-9' THEN 1 WHEN '10-19' THEN 2 WHEN '20-29' THEN 3
-          WHEN '30-39' THEN 4 WHEN '40+' THEN 5 ELSE 6
-        END
-    `, cte.params),
+    categories: groupedAircraft(db, cte, 'category_token', 'ntsb.aircraft_category', 12),
+    makes: groupedAircraft(db, cte, 'make_token', 'ntsb.aircraft_make', 12),
+    models: groupedAircraft(db, cte, 'model_token', 'ntsb.aircraft_model', 12),
+    damages: groupedAircraft(db, cte, 'damage_token', 'ntsb.damage', 12),
+    ageBuckets: groupedAircraft(db, cte, 'age_bucket_token', 'ntsb.age_bucket'),
   };
+}
+
+function groupedEvents(db, cte, field, domain) {
+  const rows = db.prepare(cte.sql + `
+    SELECT
+      ${field} AS token,
+      COUNT(*) AS count,
+      SUM(CASE WHEN fatal_token = @fatal THEN 1 ELSE 0 END) AS fatalCount
+    FROM filtered_events
+    GROUP BY ${field}
+    ORDER BY count DESC
+    LIMIT 12
+  `).all({ ...cte.params, fatal: dimToken('ntsb.fatal', '1') });
+  return resolveGroups(db, domain, rows, 'token', 'label');
 }
 
 function getWeatherBreakdown(filters) {
-  const db = getNtsbDb();
-  if (!db) return { light: [], conditions: [], visibility: [], wind: [] };
-
+  const db = databaseService.getDb();
+  if (!hasData(db)) return { light: [], conditions: [], visibility: [], wind: [] };
   const cte = buildFilteredEventsCte(filters);
   return {
-    light: runAll(db, cte.sql + `
-      SELECT COALESCE(NULLIF(TRIM(f.light_cond), ''), 'UNKNOWN') AS label, COUNT(*) AS count, SUM(${fatalExpr('f')}) AS fatalCount
-      FROM filtered_events f
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    conditions: runAll(db, cte.sql + `
-      SELECT COALESCE(NULLIF(TRIM(f.wx_cond_basic), ''), 'UNKNOWN') AS label, COUNT(*) AS count, SUM(${fatalExpr('f')}) AS fatalCount
-      FROM filtered_events f
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    visibility: runAll(db, cte.sql + `
-      SELECT
-        CASE
-          WHEN f.vis_sm IS NULL THEN '未知'
-          WHEN f.vis_sm < 1 THEN '<1'
-          WHEN f.vis_sm < 3 THEN '1-3'
-          WHEN f.vis_sm < 5 THEN '3-5'
-          WHEN f.vis_sm < 10 THEN '5-10'
-          ELSE '10+'
-        END AS label,
-        COUNT(*) AS count,
-        SUM(${fatalExpr('f')}) AS fatalCount
-      FROM filtered_events f
-      GROUP BY label
-      ORDER BY
-        CASE label WHEN '<1' THEN 1 WHEN '1-3' THEN 2 WHEN '3-5' THEN 3 WHEN '5-10' THEN 4 WHEN '10+' THEN 5 ELSE 6 END
-    `, cte.params),
-    wind: runAll(db, cte.sql + `
-      SELECT
-        CASE
-          WHEN f.wind_vel_kts IS NULL THEN '未知'
-          WHEN f.wind_vel_kts < 5 THEN '<5'
-          WHEN f.wind_vel_kts < 15 THEN '5-14'
-          WHEN f.wind_vel_kts < 25 THEN '15-24'
-          WHEN f.wind_vel_kts < 35 THEN '25-34'
-          ELSE '35+'
-        END AS label,
-        COUNT(*) AS count,
-        SUM(${fatalExpr('f')}) AS fatalCount
-      FROM filtered_events f
-      GROUP BY label
-      ORDER BY
-        CASE label WHEN '<5' THEN 1 WHEN '5-14' THEN 2 WHEN '15-24' THEN 3 WHEN '25-34' THEN 4 WHEN '35+' THEN 5 ELSE 6 END
-    `, cte.params),
+    light: groupedEvents(db, cte, 'light_condition_token', 'ntsb.light'),
+    conditions: groupedEvents(db, cte, 'weather_condition_token', 'ntsb.weather'),
+    visibility: groupedEvents(db, cte, 'visibility_bucket_token', 'ntsb.visibility_bucket'),
+    wind: groupedEvents(db, cte, 'wind_bucket_token', 'ntsb.wind_bucket'),
   };
-}
-
-function findingCategoryCase(alias) {
-  const col = 'LOWER(COALESCE(' + alias + '.finding_description, \'\'))';
-  return `
-    CASE
-      WHEN ${col} LIKE '%pilot%' OR ${col} LIKE '%personnel%' OR ${col} LIKE '%decision%' OR ${col} LIKE '%fatigue%' THEN '人为因素'
-      WHEN ${col} LIKE '%engine%' OR ${col} LIKE '%mechanical%' OR ${col} LIKE '%propeller%' OR ${col} LIKE '%component%' THEN '机械/发动机'
-      WHEN ${col} LIKE '%weather%' OR ${col} LIKE '%wind%' OR ${col} LIKE '%visibility%' OR ${col} LIKE '%icing%' THEN '天气/环境'
-      WHEN ${col} LIKE '%approach%' OR ${col} LIKE '%landing%' OR ${col} LIKE '%runway%' OR ${col} LIKE '%flare%' THEN '进近/着陆'
-      WHEN ${col} LIKE '%loss of control%' OR ${col} LIKE '%stall%' OR ${col} LIKE '%spin%' THEN '失控'
-      WHEN ${col} LIKE '%maintenance%' OR ${col} LIKE '%inspection%' OR ${col} LIKE '%repair%' THEN '维护'
-      WHEN ${col} LIKE '%fuel%' THEN '燃油'
-      WHEN ${col} LIKE '%communication%' OR ${col} LIKE '%atc%' OR ${col} LIKE '%clearance%' THEN '通信/管制'
-      WHEN ${col} LIKE '%training%' OR ${col} LIKE '%instruction%' THEN '训练'
-      ELSE '其他'
-    END
-  `;
 }
 
 function getFindingBreakdown(filters) {
-  const db = getNtsbDb();
-  if (!db || !tableExists(db, 'ntsb_findings')) {
-    return { categories: [], topFindings: [], severityMatrix: [] };
-  }
-
+  const db = databaseService.getDb();
+  if (!hasData(db)) return { categories: [], topFindings: [], severityMatrix: [] };
   const cte = buildFilteredEventsCte(filters);
-  const categoryCase = findingCategoryCase('fi');
-
+  const categories = db.prepare(cte.sql + `
+    SELECT x.category_token AS token, COUNT(*) AS count
+    FROM ntsb_finding_facts x
+    INNER JOIN filtered_events f ON f.event_token = x.event_token
+    GROUP BY x.category_token
+    ORDER BY count DESC
+    LIMIT 12
+  `).all(cte.params);
+  const findings = db.prepare(cte.sql + `
+    SELECT x.description_group_token AS token, COUNT(*) AS count
+    FROM ntsb_finding_facts x
+    INNER JOIN filtered_events f ON f.event_token = x.event_token
+    GROUP BY x.description_group_token
+    ORDER BY count DESC
+    LIMIT 12
+  `).all(cte.params);
+  const matrix = db.prepare(cte.sql + `
+    SELECT x.category_token, f.severity_token, COUNT(*) AS count
+    FROM ntsb_finding_facts x
+    INNER JOIN filtered_events f ON f.event_token = x.event_token
+    GROUP BY x.category_token, f.severity_token
+  `).all(cte.params).map((row) => ({
+    category: dimensionService.get('ntsb.finding_category', row.category_token, db),
+    severity: dimensionService.get('ntsb.severity', row.severity_token, db),
+    count: row.count,
+  }));
   return {
-    categories: runAll(db, cte.sql + `
-      SELECT ${categoryCase} AS label, COUNT(*) AS count
-      FROM ntsb_findings fi
-      INNER JOIN filtered_events f ON f.ev_id = fi.ev_id
-      WHERE NULLIF(TRIM(COALESCE(fi.finding_description, '')), '') IS NOT NULL
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    topFindings: runAll(db, cte.sql + `
-      SELECT COALESCE(NULLIF(TRIM(fi.finding_description), ''), 'UNKNOWN') AS label, COUNT(*) AS count
-      FROM ntsb_findings fi
-      INNER JOIN filtered_events f ON f.ev_id = fi.ev_id
-      WHERE NULLIF(TRIM(COALESCE(fi.finding_description, '')), '') IS NOT NULL
-      GROUP BY label
-      ORDER BY count DESC
-      LIMIT 12
-    `, cte.params),
-    severityMatrix: runAll(db, cte.sql + `
-      SELECT ${categoryCase} AS category, ${severityExpr('f')} AS severity, COUNT(*) AS count
-      FROM ntsb_findings fi
-      INNER JOIN filtered_events f ON f.ev_id = fi.ev_id
-      WHERE NULLIF(TRIM(COALESCE(fi.finding_description, '')), '') IS NOT NULL
-      GROUP BY category, severity
-      ORDER BY category, count DESC
-    `, cte.params),
+    categories: resolveGroups(db, 'ntsb.finding_category', categories, 'token', 'label'),
+    topFindings: resolveGroups(db, 'ntsb.finding_description', findings, 'token', 'label'),
+    severityMatrix: matrix,
   };
+}
+
+function searchText(recordType, query) {
+  if (!['narratives', 'findings'].includes(recordType)) throw new TypeError('Unsupported record type');
+  if (typeof query !== 'string' || query.length > 500) throw new TypeError('Invalid search query');
+  const db = databaseService.getDb();
+  const domain = recordType === 'narratives'
+    ? cryptoService.DOMAINS.TERM_NARRATIVE
+    : cryptoService.DOMAINS.TERM_FINDING;
+  const tokens = searchIndexService.searchRecordTokens(db, recordType, query, domain);
+  if (tokens.length === 0) return [];
+  const placeholders = tokens.map(() => '?').join(', ');
+  return db.prepare(`
+    SELECT record_id, record_type, payload_cipher
+    FROM ntsb_records_secure
+    WHERE record_type = ? AND record_token IN (${placeholders})
+    LIMIT 200
+  `).all(recordType, ...tokens).map((row) => cryptoService.decryptJson(row.payload_cipher, {
+    recordType: 'ntsb_records_secure',
+    field: row.record_type,
+    recordId: row.record_id,
+  }));
 }
 
 module.exports = {
@@ -482,4 +395,6 @@ module.exports = {
   getAircraftBreakdown,
   getWeatherBreakdown,
   getFindingBreakdown,
+  searchNarratives: (query) => searchText('narratives', query),
+  searchFindings: (query) => searchText('findings', query),
 };

@@ -1,5 +1,6 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
+const keyService = require('./src/main/security/keyService');
 const userService = require('./src/main/userService');
 const dataSourceService = require('./src/main/dataSourceService');
 const databaseService = require('./src/main/databaseService');
@@ -7,8 +8,21 @@ const analysisService = require('./src/main/analysisService');
 const ntsbAnalysisService = require('./src/main/ntsbAnalysisService');
 const cacheService = require('./src/main/cacheService');
 
+app.setPath('userData', path.join(databaseService.getDataDir(), 'electron-profile'));
+app.commandLine.appendSwitch('disable-http-cache');
+app.commandLine.appendSwitch('disk-cache-size', '0');
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
 let mainWindow = null;
 let defaultAdminCreated = false;
+
+function errorCode(error) {
+  return error && typeof error.code === 'string' ? error.code : 'OPERATION_FAILED';
+}
+
+function logFailure(scope, error) {
+  console.error('[' + scope + '] failed:', errorCode(error));
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -36,38 +50,62 @@ function createWindow() {
 
 function setupAuthIpcHandlers() {
   ipcMain.handle('auth:login', async (_event, username, password) => {
+    let unlockedForAttempt = false;
     try {
+      if (
+        typeof username !== 'string'
+        || username.length > 128
+        || typeof password !== 'string'
+        || password.length > 1024
+      ) {
+        return { success: false, error: '用户名或密码错误' };
+      }
+      if (!keyService.isUnlocked()) {
+        keyService.unlock(password);
+        unlockedForAttempt = true;
+      }
       const user = userService.verifyLogin(username, password);
       if (!user) {
+        if (unlockedForAttempt) {
+          databaseService.closeDatabase();
+          keyService.lock();
+        }
         return { success: false, error: '用户名或密码错误' };
       }
       userService.saveSession(user);
       // Don't log passwords!
-      console.log('[auth] User logged in:', user.username);
+      console.log('[auth] Login succeeded');
       return { success: true, user };
     } catch (error) {
-      console.error('[auth] Login error:', error.message);
-      return { success: false, error: error.message };
+      if (unlockedForAttempt || errorCode(error) === 'UNLOCK_FAILED') {
+        databaseService.closeDatabase();
+        keyService.lock();
+      }
+      logFailure('auth:login', error);
+      return { success: false, error: '用户名或密码错误' };
     }
   });
 
   ipcMain.handle('auth:logout', async () => {
     try {
-      userService.clearSession();
+      if (keyService.isUnlocked()) userService.clearSession();
+      databaseService.closeDatabase();
+      keyService.lock();
       console.log('[auth] User logged out');
       return { success: true };
     } catch (error) {
-      console.error('[auth] Logout error:', error.message);
-      return { success: false, error: error.message };
+      logFailure('auth:logout', error);
+      return { success: false, error: '退出失败' };
     }
   });
 
   ipcMain.handle('auth:me', async () => {
     try {
+      if (!keyService.isUnlocked()) return null;
       const user = userService.loadSession();
       return user || null;
     } catch (error) {
-      console.error('[auth] Session check error:', error.message);
+      logFailure('auth:me', error);
       return null;
     }
   });
@@ -86,8 +124,8 @@ function setupUsersIpcHandlers() {
     try {
       return userService.listUsers(opts);
     } catch (error) {
-      console.error('[users] List error:', error.message);
-      return { users: [], total: 0, page: 1, limit: 20, error: error.message };
+      logFailure('users:list', error);
+      return { users: [], total: 0, page: 1, limit: 20, error: '读取用户失败' };
     }
   });
 
@@ -95,12 +133,12 @@ function setupUsersIpcHandlers() {
     try {
       const result = userService.createUser(username, password);
       if (result.success && result.user) {
-        console.log('[users] Created user:', result.user.username, '(id=' + result.user.id + ')');
+        console.log('[users] Created user id=' + result.user.id);
       }
       return result;
     } catch (error) {
-      console.error('[users] Create error:', error.message);
-      return { success: false, error: error.message };
+      logFailure('users:create', error);
+      return { success: false, error: '创建用户失败' };
     }
   });
 
@@ -108,12 +146,12 @@ function setupUsersIpcHandlers() {
     try {
       const result = userService.updateUser(id, username, password);
       if (result.success) {
-        console.log('[users] Updated user id=' + id + ' to username=' + username);
+        console.log('[users] Updated user id=' + Number(id));
       }
       return result;
     } catch (error) {
-      console.error('[users] Update error:', error.message);
-      return { success: false, error: error.message };
+      logFailure('users:update', error);
+      return { success: false, error: '更新用户失败' };
     }
   });
 
@@ -128,8 +166,8 @@ function setupUsersIpcHandlers() {
       }
       return result;
     } catch (error) {
-      console.error('[users] Delete error:', error.message);
-      return { success: false, error: error.message };
+      logFailure('users:delete', error);
+      return { success: false, error: '删除用户失败' };
     }
   });
 
@@ -141,8 +179,8 @@ function setupUsersIpcHandlers() {
       }
       return result;
     } catch (error) {
-      console.error('[users] ResetPassword error:', error.message);
-      return { success: false, error: error.message };
+      logFailure('users:resetPassword', error);
+      return { success: false, error: '重置密码失败' };
     }
   });
 }
@@ -259,6 +297,7 @@ function setupAnalysisIpcHandlers() {
 
   ipcMain.handle('analysis:getFlight', async (_event, icao24) => {
     try {
+      if (typeof icao24 !== 'string' || icao24.length > 32) return null;
       return analysisService.getFlight(icao24);
     } catch (error) {
       console.error('[analysis] getFlight error:', error.message);
@@ -277,6 +316,7 @@ function setupAnalysisIpcHandlers() {
 
   ipcMain.handle('analysis:getFaaInfo', async (_event, icao24) => {
     try {
+      if (typeof icao24 !== 'string' || icao24.length > 32) return null;
       return analysisService.getFaaInfo(icao24);
     } catch (error) {
       console.error('[analysis] getFaaInfo error:', error.message);
@@ -286,6 +326,7 @@ function setupAnalysisIpcHandlers() {
 
   ipcMain.handle('analysis:getFaaInfoBulk', async (_event, icao24List) => {
     try {
+      if (!Array.isArray(icao24List) || icao24List.length > 2000) return {};
       return analysisService.getFaaInfoBulk(icao24List);
     } catch (error) {
       console.error('[analysis] getFaaInfoBulk error:', error.message);
@@ -368,22 +409,59 @@ function setupNtsbAnalysisIpcHandlers() {
       return { categories: [], topFindings: [], severityMatrix: [] };
     }
   });
+
+  ipcMain.handle('ntsb:searchNarratives', async (_event, query) => {
+    try {
+      if (typeof query !== 'string' || query.length > 500) return [];
+      return ntsbAnalysisService.searchNarratives(query);
+    } catch (error) {
+      logFailure('ntsb:searchNarratives', error);
+      return [];
+    }
+  });
+
+  ipcMain.handle('ntsb:searchFindings', async (_event, query) => {
+    try {
+      if (typeof query !== 'string' || query.length > 500) return [];
+      return ntsbAnalysisService.searchFindings(query);
+    } catch (error) {
+      logFailure('ntsb:searchFindings', error);
+      return [];
+    }
+  });
 }
 
 // ── App lifecycle ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
-  // 1. Seed default admin account if no users exist
-  const seedResult = userService.seedDefaultAdmin();
-  defaultAdminCreated = !!seedResult.created;
-  if (defaultAdminCreated) {
-    userService.clearSession();
+  try {
+    const security = keyService.initialize({
+      dataDir: databaseService.getDataDir(),
+      bootstrap: { userId: 1, password: 'admin123' },
+    });
+    if (security.created) {
+      const seedResult = userService.seedDefaultAdmin();
+      if (!seedResult.created) throw new Error('Default administrator bootstrap failed.');
+      defaultAdminCreated = true;
+      userService.clearSession();
+      databaseService.closeDatabase();
+      keyService.lock();
+    }
+  } catch (error) {
+    logFailure('startup', error);
+    dialog.showErrorBox(
+      '安全存储初始化失败',
+      error && error.code === 'LEGACY_DATABASE'
+        ? '检测到旧版明文数据库。请删除 data/app.db、app.db-wal 和 app.db-shm 后重新启动。'
+        : '无法初始化便携 keyring 或密态数据库。应用已停止，以避免明文降级。'
+    );
+    app.quit();
+    return;
   }
-
-  // 2. Create the window (login page loads first)
+  // 1. Create the window (the database remains locked until login)
   createWindow();
 
-  // 3. Register all IPC handlers
+  // 2. Register all IPC handlers
   setupAuthIpcHandlers();
   setupUsersIpcHandlers();
   setupDataSourceIpcHandlers();
@@ -391,7 +469,7 @@ app.whenReady().then(() => {
   setupAnalysisIpcHandlers();
   setupNtsbAnalysisIpcHandlers();
 
-  // 4. App is ready — no background FAA loading needed.
+  // 3. App is ready — no background FAA loading needed.
   //    Analysis page reads from SQLite via analysis: IPC channels.
   //    Use the "数据采集入库" page to download/import data first.
 
@@ -405,5 +483,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   userService.closeDatabase();
   databaseService.closeDatabase();
+  keyService.clear();
   app.quit();
 });
