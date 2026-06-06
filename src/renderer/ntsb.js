@@ -14,7 +14,6 @@ var NtsbModule = (function () {
     pendingLoad: false,
     optionsLoading: false,
     lastFiltersKey: '',
-    acftMake: '',
   };
 
   var COLORS = {
@@ -353,7 +352,6 @@ var NtsbModule = (function () {
     els.country = $('#ntsb-country');
     els.state = $('#ntsb-state');
     els.severity = $('#ntsb-severity');
-    els.acftCategory = $('#ntsb-acft-category');
     els.damage = $('#ntsb-damage');
     els.refresh = $('#btn-ntsb-refresh');
     els.reset = $('#btn-ntsb-reset');
@@ -426,8 +424,6 @@ var NtsbModule = (function () {
       country: els.country ? els.country.value : '',
       state: els.state ? els.state.value : '',
       severity: els.severity ? els.severity.value : '',
-      acftCategory: els.acftCategory ? els.acftCategory.value : '',
-      acftMake: state.acftMake,
       damage: els.damage ? els.damage.value : '',
     };
   }
@@ -489,14 +485,12 @@ var NtsbModule = (function () {
     fillSelect(els.country, options.countries || [], '全部国家/地区', 'country');
     fillSelect(els.state, options.states || [], '全部州/地区', 'state');
     fillSelect(els.severity, options.severities || [], '全部严重度', 'severity');
-    fillSelect(els.acftCategory, options.aircraftCategories || [], '全部飞机类别', 'acftCategory');
     fillSelect(els.damage, options.damages || [], '全部损坏程度', 'damage');
 
     [
       [els.country, previous.country],
       [els.state, previous.state],
       [els.severity, previous.severity],
-      [els.acftCategory, previous.acftCategory],
       [els.damage, previous.damage],
     ].forEach(function (entry) {
       if (hasOption(entry[0], entry[1])) entry[0].value = entry[1];
@@ -765,19 +759,10 @@ var NtsbModule = (function () {
     renderCompactList(els.categoryList, (data.categories || []).map(function (row) {
       return {
         label: displayLabel('acftCategory', row.label),
-        raw: row.label,
         count: row.count,
       };
-    }), function (row) {
-      if (els.acftCategory) {
-        els.acftCategory.value = row.raw === 'UNKNOWN' ? '' : row.raw;
-        scheduleLoad();
-      }
-    });
-    renderCompactList(els.makeList, data.makes || [], function (row) {
-      state.acftMake = row.label === 'UNKNOWN' ? '' : row.label;
-      scheduleLoad();
-    });
+    }));
+    renderCompactList(els.makeList, data.makes || []);
   }
 
   function renderCompactList(container, rows, onClick) {
@@ -881,15 +866,14 @@ var NtsbModule = (function () {
   function resetFilters() {
     if (els.yearFrom) els.yearFrom.value = optionYears.min || '';
     if (els.yearTo) els.yearTo.value = optionYears.max || '';
-    state.acftMake = '';
-    [els.country, els.state, els.severity, els.acftCategory, els.damage].forEach(function (select) {
+    [els.country, els.state, els.severity, els.damage].forEach(function (select) {
       if (select) select.value = '';
     });
     loadDashboard();
   }
 
   function bindEvents() {
-    [els.yearFrom, els.yearTo, els.country, els.state, els.severity, els.acftCategory, els.damage].forEach(function (el) {
+    [els.yearFrom, els.yearTo, els.country, els.state, els.severity, els.damage].forEach(function (el) {
       if (el) {
         el.addEventListener('change', scheduleLoad);
       }
