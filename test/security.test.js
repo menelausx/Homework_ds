@@ -13,6 +13,8 @@ const normalizers = require('../src/main/security/normalizers');
 const searchIndexService = require('../src/main/security/searchIndexService');
 const buckets = require('../src/main/security/buckets');
 const geo = require('../src/main/security/geo');
+const databaseService = require('../src/main/databaseService');
+const rememberSessionService = require('../src/main/security/rememberSessionService');
 
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'secure-search-test-'));
 keyService.initialize({
@@ -81,6 +83,37 @@ test('portable keyring locks and unlocks with user passwords', () => {
   );
   keyService.unlock('second-user-password');
   assert.equal(keyService.isUnlocked(), true);
+});
+
+test('saved session slots unlock without replacing password slots', () => {
+  const token = 'session-token-' + 'x'.repeat(40);
+  const slotId = keyService.createSessionSlot(2, token);
+  keyService.lock();
+  assert.deepEqual(keyService.unlockSession(slotId, 2, token), { success: true, userId: 2 });
+  keyService.revokeSessionSlot(slotId);
+  keyService.lock();
+  assert.throws(
+    () => keyService.unlockSession(slotId, 2, token),
+    (error) => error.code === 'SESSION_UNLOCK_FAILED'
+  );
+  keyService.unlock('second-user-password');
+  assert.equal(keyService.isUnlocked(), true);
+});
+
+test('saved login session files restore and revoke their session slot', () => {
+  const originalGetDataDir = databaseService.getDataDir;
+  databaseService.getDataDir = () => testDir;
+  try {
+    rememberSessionService.create(2);
+    assert.equal(rememberSessionService.exists(), true);
+    keyService.lock();
+    assert.equal(rememberSessionService.restore(), 2);
+    assert.equal(keyService.isUnlocked(), true);
+    rememberSessionService.clear();
+    assert.equal(rememberSessionService.exists(), false);
+  } finally {
+    databaseService.getDataDir = originalGetDataDir;
+  }
 });
 
 test('chunked cache detects tampering and truncation', () => {

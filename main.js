@@ -7,6 +7,7 @@ const databaseService = require('./src/main/databaseService');
 const analysisService = require('./src/main/analysisService');
 const ntsbAnalysisService = require('./src/main/ntsbAnalysisService');
 const cacheService = require('./src/main/cacheService');
+const rememberSessionService = require('./src/main/security/rememberSessionService');
 
 app.setPath('userData', path.join(databaseService.getDataDir(), 'electron-profile'));
 app.commandLine.appendSwitch('disable-http-cache');
@@ -49,7 +50,7 @@ function createWindow() {
 // ── Auth IPC handlers ──────────────────────────────────────────────────────
 
 function setupAuthIpcHandlers() {
-  ipcMain.handle('auth:login', async (_event, username, password) => {
+  ipcMain.handle('auth:login', async (_event, username, password, rememberLogin) => {
     let unlockedForAttempt = false;
     try {
       if (
@@ -73,6 +74,11 @@ function setupAuthIpcHandlers() {
         return { success: false, error: '用户名或密码错误' };
       }
       userService.saveSession(user);
+      if (rememberLogin === true) {
+        rememberSessionService.create(user.id);
+      } else {
+        rememberSessionService.clear();
+      }
       // Don't log passwords!
       console.log('[auth] Login succeeded');
       return { success: true, user };
@@ -88,7 +94,12 @@ function setupAuthIpcHandlers() {
 
   ipcMain.handle('auth:logout', async () => {
     try {
-      if (keyService.isUnlocked()) userService.clearSession();
+      if (keyService.isUnlocked()) {
+        rememberSessionService.clear();
+        userService.clearSession();
+      } else {
+        rememberSessionService.discard();
+      }
       databaseService.closeDatabase();
       keyService.lock();
       console.log('[auth] User logged out');
@@ -446,6 +457,20 @@ app.whenReady().then(() => {
       userService.clearSession();
       databaseService.closeDatabase();
       keyService.lock();
+    } else if (rememberSessionService.exists()) {
+      try {
+        const rememberedUserId = rememberSessionService.restore();
+        const rememberedUser = userService.loadSession();
+        if (!rememberedUser || rememberedUser.id !== rememberedUserId) {
+          throw new Error('Saved login user does not match the database session.');
+        }
+        console.log('[auth] Saved login restored');
+      } catch (error) {
+        logFailure('auth:restore', error);
+        databaseService.closeDatabase();
+        keyService.lock();
+        rememberSessionService.discard();
+      }
     }
   } catch (error) {
     logFailure('startup', error);

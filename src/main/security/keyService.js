@@ -87,12 +87,13 @@ function masterAad(keyVersion) {
   };
 }
 
-function makeUnlockSlot(rootKey, userId, password) {
+function makeUnlockSlot(rootKey, userId, password, kind) {
   const salt = crypto.randomBytes(16);
   const unlockKey = deriveUnlockKey(password, salt);
   const slot = {
     slotId: crypto.randomBytes(16).toString('hex'),
     userId: Number(userId),
+    kind: kind || 'password',
     salt: salt.toString('base64'),
     createdAt: new Date().toISOString(),
   };
@@ -177,33 +178,53 @@ function assertUnlocked() {
   if (!isUnlocked()) throw controlledError('DATA_LOCKED', 'Login is required to unlock encrypted data.');
 }
 
+function unlockSlot(slot, credential) {
+  let unlockKey;
+  let rootKey;
+  try {
+    unlockKey = deriveUnlockKey(credential, Buffer.from(slot.salt, 'base64'));
+    rootKey = open(unlockKey, slot.wrappedRootKey, slotAad(slot));
+    if (rootKey.length !== KEY_BYTES) throw new Error('invalid root key');
+    const keys = new Map();
+    for (const entry of state.keyring.wrappedMasterKeys) {
+      const masterKey = open(rootKey, entry.wrappedMasterKey, masterAad(entry.keyVersion));
+      if (masterKey.length !== KEY_BYTES) throw new Error('invalid master key');
+      keys.set(entry.keyVersion, masterKey);
+    }
+    state.rootKey = rootKey;
+    state.keys = keys;
+    return { success: true, userId: slot.userId };
+  } catch (_error) {
+    if (rootKey) rootKey.fill(0);
+    return null;
+  } finally {
+    if (unlockKey) unlockKey.fill(0);
+  }
+}
+
 function unlock(password) {
   assertInitialized();
   if (isUnlocked()) return { success: true };
 
   for (const slot of state.keyring.unlockSlots) {
-    let unlockKey;
-    let rootKey;
-    try {
-      unlockKey = deriveUnlockKey(password, Buffer.from(slot.salt, 'base64'));
-      rootKey = open(unlockKey, slot.wrappedRootKey, slotAad(slot));
-      if (rootKey.length !== KEY_BYTES) throw new Error('invalid root key');
-      const keys = new Map();
-      for (const entry of state.keyring.wrappedMasterKeys) {
-        const masterKey = open(rootKey, entry.wrappedMasterKey, masterAad(entry.keyVersion));
-        if (masterKey.length !== KEY_BYTES) throw new Error('invalid master key');
-        keys.set(entry.keyVersion, masterKey);
-      }
-      state.rootKey = rootKey;
-      state.keys = keys;
-      return { success: true, userId: slot.userId };
-    } catch (_error) {
-      if (rootKey) rootKey.fill(0);
-    } finally {
-      if (unlockKey) unlockKey.fill(0);
-    }
+    if (slot.kind === 'session') continue;
+    const result = unlockSlot(slot, password);
+    if (result) return result;
   }
   throw controlledError('UNLOCK_FAILED', 'The login password could not unlock the encrypted data.');
+}
+
+function unlockSession(slotId, userId, token) {
+  assertInitialized();
+  if (isUnlocked()) return { success: true };
+  const slot = state.keyring.unlockSlots.find((entry) => (
+    entry.kind === 'session'
+    && entry.slotId === slotId
+    && entry.userId === Number(userId)
+  ));
+  const result = slot ? unlockSlot(slot, token) : null;
+  if (!result) throw controlledError('SESSION_UNLOCK_FAILED', 'The saved login session is invalid.');
+  return result;
 }
 
 function lock() {
@@ -270,6 +291,27 @@ function addUserSlot(userId, password) {
   commitUserSlot(userId, slotId);
 }
 
+function createSessionSlot(userId, token) {
+  assertUnlocked();
+  const user = Number(userId);
+  const slot = makeUnlockSlot(state.rootKey, user, token, 'session');
+  const slots = state.keyring.unlockSlots
+    .filter((entry) => entry.kind !== 'session' || entry.userId !== user)
+    .concat([slot]);
+  writeKeyring({ ...state.keyring, unlockSlots: slots });
+  return slot.slotId;
+}
+
+function revokeSessionSlot(slotId) {
+  assertUnlocked();
+  writeKeyring({
+    ...state.keyring,
+    unlockSlots: state.keyring.unlockSlots.filter(
+      (slot) => slot.kind !== 'session' || slot.slotId !== slotId
+    ),
+  });
+}
+
 function removeUserSlot(userId) {
   assertUnlocked();
   const nextSlots = state.keyring.unlockSlots.filter((slot) => slot.userId !== Number(userId));
@@ -305,6 +347,7 @@ function clear() {
 module.exports = {
   initialize,
   unlock,
+  unlockSession,
   lock,
   isUnlocked,
   getCurrentKeyVersion,
@@ -314,6 +357,8 @@ module.exports = {
   commitUserSlot,
   rollbackUserSlot,
   addUserSlot,
+  createSessionSlot,
+  revokeSessionSlot,
   removeUserSlot,
   rotateMasterKey,
   clear,

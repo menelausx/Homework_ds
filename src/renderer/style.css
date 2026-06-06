@@ -634,6 +634,24 @@ body {
   color: var(--text-muted);
 }
 
+.login-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.login-remember input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent-cyan);
+}
+
 .login-btn {
   display: flex;
   align-items: center;

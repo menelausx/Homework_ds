@@ -1,681 +1,515 @@
 # 开发文档
 
-本文档用于说明当前项目结构、关键流程和后续开发约定。
+本文档描述当前代码的实际架构、安全边界、数据模型和开发流程。修改安全模块、数据库 schema、IPC 或数据源前应先阅读本文。
 
-## 架构概览
-
-应用采用 Electron 的主进程 + 预加载桥接 + 渲染进程结构。
+## 架构
 
 ```text
-Renderer Process
+Renderer
   index.html
-  login.js / import.js / admin.js / app.js / style.css
-          |
-          | window.electronAPI
-          v
+  login.js / app.js / ntsb.js / import.js / admin.js
+       |
+       | window.electronAPI
+       v
 Preload
   preload.js
-          |
-          | ipcRenderer.invoke / ipcRenderer.on
-          v
-Main Process
+       |
+       | ipcRenderer.invoke
+       v
+Main
   main.js
-  src/main/userService.js          ← 用户/会话管理
-  src/main/cacheService.js         ← 文件缓存读写
-  src/main/databaseService.js      ← 数据表数据库连接
-  src/main/dataSourceService.js    ← 数据源注册与调度
-  src/main/openskyDataSource.js    ← OpenSky 数据源（下载/解析/入库）
-  src/main/faaDataSource.js        ← FAA 数据源（下载/解析/入库）
-  src/main/ntsbDataSource.js       ← NTSB 数据源（下载/解析/入库）
-  src/main/analysisService.js      ← SQLite 分析查询服务
-  src/main/ntsbAnalysisService.js  ← NTSB 聚合分析查询服务
-  src/main/faaService.js           ← FAA 解析工具（被 faaDataSource 复用）
-  src/main/openskyService.js       ← OpenSky API 工具（被 openskyDataSource 复用）
+  userService / dataSourceService / analysis services
+  databaseService
+  security/*
+       |
+       v
+data/
+  keyring.json
+  login-session.json
+  app.db
+  *.securecache
 ```
 
-安全设置：
+Electron 安全设置：
 
 - `contextIsolation: true`
 - `nodeIntegration: false`
-- 渲染进程不能直接访问 Node.js API
-- 所有文件、数据库、网络能力都通过主进程 IPC 提供
-- 渲染端只使用 `window.electronAPI`
+- 文件、网络、数据库和密码学能力只存在于主进程
+- preload 只暴露明确的业务 API
+- 渲染端不存在通用 SQL、文件读取或解密接口
 
 ## 启动流程
 
-`main.js` 中的启动顺序：
-
-1. `app.whenReady()`
-2. `userService.seedDefaultAdmin()`
-3. 如果用户表为空，创建默认账号 `admin / admin123`
-4. 如果创建了默认账号，清空 session，防止自动登录
-5. `createWindow()`
-6. 注册 Auth、Users、Analysis、NTSB Analysis、DataSources、Shell IPC
-7. 应用就绪（不再后台加载 FAA 文件；分析页面从 SQLite 读取数据）
-
-渲染端脚本加载顺序很重要：
-
-```html
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="admin.js"></script>
-<script src="import.js"></script>
-<script src="ntsb.js"></script>
-<script src="app.js"></script>
-<script src="login.js"></script>
-```
-
-`login.js` 必须在 `app.js` 之后加载。保持登录恢复成功时，它会调用 `AppModule.onLogin()`，进而初始化 `FaaOpenskyModule` 和 `NtsbModule`。
-
-## 标签页结构
-
-当前共四个标签页，按顺序：
-
-1. **FAA/OpenSky 分析** (`faa-opensky`) — 地图、航班图层、FAA 匹配、详情面板
-2. **NTSB 事故趋势分析** (`ntsb`) — KPI、年度趋势、严重度、事故空间聚合、飞机画像、天气、原因分类
-3. **数据采集入库** (`import`) — 卡片式数据源列表，下载/解析/入库/一键更新
-4. **系统管理** (`admin`) — 用户管理
-
-标签切换由 `AppModule.switchTab()` 统一管理。每个标签页激活时调用对应模块的 `onActivate()` 方法。
-
-## 用户与会话
-
-用户和登录状态全部由 SQLite 管理，数据库文件为：
-
-```text
-data/app.db
-```
-
-相关代码集中在：
-
-```text
-src/main/userService.js
-```
-
-### users 表
-
-保存账号信息。
-
-```sql
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'admin',
-  created_at TEXT NOT NULL,
-  last_login TEXT
-);
-```
-
-说明：
-
-- 密码使用 `bcryptjs` 哈希后保存。
-- `role` 当前固定为 `admin`，后续可扩展权限。
-- 登录成功时更新 `last_login`。
-- 不再使用 `users.json`。
-
-### sessions 表
-
-保存当前保持登录状态。
-
-```sql
-CREATE TABLE IF NOT EXISTS sessions (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
-  user_id INTEGER NOT NULL,
-  username TEXT NOT NULL,
-  role TEXT NOT NULL,
-  login_time TEXT NOT NULL,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-);
-```
-
-说明：
-
-- 当前是单会话模式，表中最多一条记录。
-- 登录成功：`saveSession(user)` 写入或覆盖 `id = 1`。
-- 应用启动：`loadSession()` 根据 `user_id` 查询 `users` 表恢复登录。
-- 退出登录：`clearSession()` 清空表。
-- 不再使用 `session.json`。
-
-## 登录流程
-
-普通登录：
-
-1. 用户在登录页输入账号密码。
-2. `login.js` 调用 `window.electronAPI.login(username, password)`。
-3. `main.js` 的 `auth:login` 调用 `userService.verifyLogin()`。
-4. 密码校验成功后调用 `userService.saveSession()`。
-5. 渲染端调用 `AppModule.onLogin()`，初始化 FAA/OpenSky 模块。
-
-保持登录：
-
-1. `login.js` 启动时调用 `getBootstrapInfo()`。
-2. 如果本次启动创建了默认账号，登录页显示初始账号提示。
-3. 调用 `getCurrentUser()`。
-4. 主进程从 `sessions` 表读取当前登录用户。
-5. 用户存在则隐藏登录页，并调用 `AppModule.onLogin()`。
-
-默认账号：
-
-- 当 `users` 表为空时自动创建。
-- 登录页提示 `admin / admin123`。
-- 不自动填入输入框，也不自动登录。
-
-## IPC 通道
-
-Auth：
-
-| 通道 | 参数 | 返回 |
-| --- | --- | --- |
-| `auth:login` | `username, password` | `{ success, user?, error? }` |
-| `auth:logout` | - | `{ success, error? }` |
-| `auth:me` | - | 当前用户或 `null` |
-| `auth:bootstrapInfo` | - | `{ defaultAdminCreated }` |
-
-Users：
-
-| 通道 | 参数 | 返回 |
-| --- | --- | --- |
-| `users:list` | `{ page, limit, search }` | `{ users, total, page, limit }` |
-| `users:create` | `username, password` | `{ success, user?, error? }` |
-| `users:update` | `id, username, password?` | `{ success, user?, error? }` |
-| `users:delete` | `id` | `{ success, error? }` |
-| `users:resetPassword` | `id, newPassword` | `{ success, error? }` |
-
-Analysis（FAA/OpenSky 分析页面，SQLite 只读查询）：
-
-| 通道 | 参数 | 返回 |
-| --- | --- | --- |
-| `analysis:getFlights` | - | `{ time, cacheTime, states, snapshotTime }` |
-| `analysis:getFlight` | `icao24` | 单条航班记录或 `null` |
-| `analysis:getStatistics` | - | `{ flightCount, faaMatched, faaTotalRecords, faaLoaded, faaError, snapshotTime }` |
-| `analysis:getFaaInfo` | `icao24` | FAA 记录（CSV 字段名格式）或 `null` |
-| `analysis:getFaaInfoBulk` | `icao24List` | `{ [icao24]: record }` |
-
-> **所有分析数据来自 SQLite，无网络请求、无文件回退。**
-
-NTSB Analysis（NTSB 事故趋势分析页面，SQLite 聚合查询）：
-
-| 通道 | 参数 | 返回 |
-| --- | --- | --- |
-| `ntsb:getFilterOptions` | - | 年份、国家、州/地区、严重度、飞机类别、损坏程度选项 |
-| `ntsb:getOverview` | `filters` | KPI 总览：总事故、致命事故、致命占比、涉事飞机、有坐标、有叙述、高发地区 |
-| `ntsb:getYearlyTrend` | `filters` | 年度事故总量、致命事故、严重度结构 |
-| `ntsb:getSeverityDistribution` | `filters` | 最高伤害等级分布 |
-| `ntsb:getGeoAggregation` | `filters` | 经纬度网格聚合点，含事故数和致命事故数 |
-| `ntsb:getAircraftBreakdown` | `filters` | 飞机类别、制造商、机型、损坏程度、机龄区间聚合 |
-| `ntsb:getWeatherBreakdown` | `filters` | 光照、天气、能见度、风速分布 |
-| `ntsb:getFindingBreakdown` | `filters` | 原因发现关键词分类、Top findings、严重度矩阵 |
-
-`filters` 支持：
-
-```js
-{
-  yearFrom,
-  yearTo,
-  country,
-  state,
-  severity,
-  acftCategory,
-  damage
-}
-```
-
-Data Sources（数据采集入库）：
-
-| 通道 | 参数 | 返回 |
-| --- | --- | --- |
-| `dataSources:list` | - | 数据源列表，含状态信息 |
-| `dataSources:status` | `sourceId` | 单个数据源的状态详情 |
-| `dataSources:download` | `sourceId` | `{ success, error? }` |
-| `dataSources:parse` | `sourceId` | `{ success, recordCount?, error? }` |
-| `dataSources:import` | `sourceId` | `{ success, recordCount?, error? }` |
-| `dataSources:updateAll` | `sourceId` | `{ success, phases[], error? }` |
-
-其中 `sourceId` 取值：
-- `opensky_states` — OpenSky 全量航班状态数据
-- `faa_aircraft` — FAA 注册飞机数据库
-- `ntsb_aviation_accidents` — NTSB 民航事故调查数据集
-
-## FAA/OpenSky 分析数据流（SQLite 驱动）
-
-分析页面完全基于 SQLite 运行，不直接访问外部 API 或文件。
-
-```text
-┌─────────────────────────────────────────────────────┐
-│ 数据采集入库页面                                      │
-│   → 下载原始数据 → 解析 → 写入 SQLite                  │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌────────────────── SQLite ──────────────────────────┐
-│  opensky_states          faa_aircraft               │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       │ analysis: IPC (只读查询)
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│ FAA/OpenSky 分析页面                                  │
-│   → analysisService.getFlights()                    │
-│   → analysisService.getFaaInfo() / getFaaInfoBulk() │
-│   → 地图展示 + FAA 匹配 + 详情面板                      │
-└─────────────────────────────────────────────────────┘
-```
-
-### 数据流（新版）
-
-1. 用户在”数据采集入库”页面导入数据 → 写入 `opensky_states` / `faa_aircraft` 表。
-2. 切换到”FAA/OpenSky 分析”页面。
-3. 页面激活时从数据库加载航班数据和 FAA 统计数据。
-4. 地图渲染所有航班，FAA 匹配通过 SQLite 查询完成。
-
-### 匹配逻辑
-
-匹配字段（与之前一致）：
-
-```text
-FAA:     faa_aircraft.mode_s_code_hex
-OpenSky: opensky_states.icao24
-```
-
-- 统一小写匹配。
-- `analysisService.getFaaInfo(icao24)` — 单条查询。
-- `analysisService.getFaaInfoBulk(icao24List)` — 批量查询，SQL `IN` 子句分块（500/批）。
-- 统计数据中的 FAA 匹配数通过 `INNER JOIN` 在数据库层完成。
-
-## NTSB 事故趋势分析数据流（SQLite 聚合驱动）
-
-NTSB 页面定位为趋势与风险态势看板，不展示单个事故详情。渲染进程不直接访问数据库，也不一次性接收事故明细。
-
-```text
-┌─────────────────────────────────────────────────────┐
-│ 数据采集入库页面                                      │
-│   → 下载 avall.zip → 解析 avall.mdb → 写入 SQLite      │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       ▼
-┌────────────────── SQLite ──────────────────────────┐
-│ ntsb_events / ntsb_aircraft / ntsb_narratives       │
-│ ntsb_findings / ntsb_flight_crew / ntsb_engines     │
-│ ntsb_injury                                         │
-└──────────────────────┬──────────────────────────────┘
-                       │
-                       │ ntsb: IPC（聚合查询）
-                       ▼
-┌─────────────────────────────────────────────────────┐
-│ NTSB 事故趋势分析页面                                  │
-│   → KPI、年度趋势、严重度分布                            │
-│   → 事故空间聚合、飞机画像、天气、原因分类                 │
-└─────────────────────────────────────────────────────┘
-```
-
-### 页面组成
-
-- 顶部筛选器：年份范围、国家、州/地区、严重度、飞机类别、损坏程度。
-- KPI：总事故/事件、致命事故、致命占比、涉事飞机、有坐标事故、有叙述事故、高发地区。
-- 图表：年度趋势、严重度分布、光照/天气分布、原因发现关键词分类。
-- 地图：事故空间聚合圆点，按经纬度网格统计事故密度和致命事故数。
-- 飞机画像：飞机类别和制造商 Top N。
-
-### 筛选与联动
-
-所有筛选都通过 IPC 重新请求聚合数据：
-
-```text
-ntsb.js -> window.electronAPI.getNtsbXxx(filters)
-        -> main.js IPC
-        -> ntsbAnalysisService.js
-        -> SQLite 聚合 SQL
-```
-
-点击年度趋势中的年份会把年份范围锁定为该年；点击严重度条形图会设置严重度筛选；点击地图聚合点会设置国家/州；点击飞机类别会设置飞机类别筛选。
-
-### 事故空间聚合地图
-
-地图由 `ntsbAnalysisService.getGeoAggregation()` 产生聚合结果：
-
-```sql
-ROUND(dec_latitude * 2.0) / 2.0 AS lat,
-ROUND(dec_longitude * 2.0) / 2.0 AS lng
-```
-
-每个 `0.5°` 经纬度网格返回：
-
-- `count`：该网格事故数量
-- `fatalCount`：该网格致命事故数量
-- `country/state`：区域标签
-
-前端 `ntsb.js` 使用 Leaflet `L.circleMarker()` 绘制聚合圆点：
-
-- 半径按 `sqrt(count / max)` 缩放。
-- 颜色按致命占比区分：低占比为青色，中等为橙色，高占比为红色。
-- 每次最多返回 650 个聚合点，避免渲染 2 万多条事故 marker。
-
-## 数据采集入库
-
-### 架构
-
-新增"数据采集入库"标签页，采用可扩展的数据源注册模式。每个数据源实现统一接口，由 `dataSourceService.js` 集中调度。
-
-```text
-Renderer (import.js)
-  -> 卡片式列表，每个数据源一张卡片
-  -> 按钮：下载 / 解析 / 入库 / 一键更新
-          |
-          | window.electronAPI (IPC)
-          v
-dataSourceService.js           ← 中央注册表，调度数据源
-  ├── openskyDataSource.js     ← OpenSky 全量航班状态数据
-  ├── faaDataSource.js         ← FAA 注册飞机数据库
-  └── ntsbDataSource.js        ← NTSB 民航事故调查数据集
-          |
-          v
-databaseService.js             ← SQLite 数据表读写
-```
-
-### 数据源接口
-
-每个数据源模块必须导出：
-
-| 属性/方法 | 类型 | 说明 |
-| --- | --- | --- |
-| `sourceId` | `string` | 唯一标识，如 `opensky_states` |
-| `name` | `string` | 显示名称 |
-| `description` | `string` | 功能说明 |
-| `url` | `string` | 数据来源 URL |
-| `download()` | `async function` | 从远程获取原始数据，保存到本地缓存 |
-| `parse()` | `async function` | 将缓存数据解析为结构化对象 |
-| `importToDatabase(parsedData?)` | `async function` | 将结构化数据写入 SQLite |
-| `updateAll()` | `async function` | 下载 + 解析 + 入库一键完成 |
-| `getStatus()` | `function` | 返回当前状态（记录数、各步骤时间） |
-
-### 数据流
-
-#### OpenSky
-
-```text
-OpenSky API (https://opensky-network.org/api/states/all)
-  -> openskyDataSource.download()
-  -> data/opensky_states_raw.json          (原始 JSON 缓存)
-  -> openskyDataSource.parse()
-  -> convertStatesToObjectsAll()           (数组转具名字段)
-  -> openskyDataSource.importToDatabase()
-  -> opensky_states 表 (SQLite)
-```
-
-说明：
-- 只有用户点击按钮时才请求，**不自动轮询**。
-- 保留所有航班（包括无经纬度），标记 `has_position` 字段。
-- `icao24` 统一小写，`callsign` 去除首尾空白。
-- 每次入库先清空表，再全量写入。
-- 复用 `openskyService.fetchOpenSkyData()` 进行 API 请求。
-
-#### FAA
-
-```text
-FAA 官网 (https://registry.faa.gov/database/ReleasableAircraft.zip)
-  -> faaDataSource.download()
-  -> data/ReleasableAircraft.zip           (本地缓存)
-  -> faaDataSource.parse()
-  -> AdmZip -> MASTER.txt -> parseCSVLine()
-  -> faaDataSource.importToDatabase()
-  -> faa_aircraft 表 (SQLite)
-```
-
-说明：
-- `MODE S CODE HEX` 统一转小写，方便与 OpenSky `icao24` 匹配。
-- 每次入库先清空表，再全量写入。
-- 复用 `faaService.downloadFile()` / `faaService.loadFromZip()` / `faaService.parseMasterText()`。
-
-#### NTSB
-
-```text
-NTSB avall.zip
-  -> ntsbDataSource.download()
-  -> data/avall.zip                         (本地缓存)
-  -> ntsbDataSource.parse()
-  -> AdmZip -> avall.mdb -> mdb-reader
-  -> ntsbDataSource.importToDatabase()
-  -> ntsb_events / ntsb_aircraft / ntsb_narratives
-     ntsb_findings / ntsb_flight_crew / ntsb_engines / ntsb_injury
-```
-
-说明：
-- 只导入事故趋势分析需要的核心表。
-- 每次入库先删除旧的 NTSB 目标表，再按 Access 字段动态建表。
-- 导入后为 `ev_id`、`Aircraft_Key`、经纬度等常用字段创建索引。
-- NTSB 事故趋势分析页面只读这些表，通过 SQL 聚合生成图表数据。
-
-### 数据库表
-
-`opensky_states` 和 `faa_aircraft` 由 `databaseService.js` 在首次使用时自动创建。表结构与索引见 [databaseService.js](../src/main/databaseService.js) `initializeSchema()` 函数。
-
-`databaseService.js` 使用独立的 `better-sqlite3` 连接（与 `userService.js` 连接相互独立，操作同一数据库文件）。SQLite WAL 模式保证并发安全。
-
-### 添加新数据源
-
-1. 在 `src/main/` 创建新文件（如 `airportDataSource.js`），实现上述标准接口。
-2. 在 `dataSourceService.js` 中 `require` 并 `registry.set()`。
-3. 前端自动通过 `dataSources:list` 发现新数据源并渲染卡片。
-
-**无需修改 UI 代码、HTML 或 CSS。**
-
-## 前端模块
-
-### login.js
-
-负责：
-
-- 登录页显示/隐藏
-- 手动登录
-- 保持登录恢复
-- 默认账号提示
-- 退出登录
-
-注意：
-
-- 不要在 `login.js` 中直接初始化 FAA 模块。
-- 登录成功统一调用 `AppModule.onLogin()`。
-
-### admin.js
-
-负责用户管理：
-
-- 列表、搜索、分页
-- 新建用户
-- 编辑用户名
-- 编辑密码
-- 重置密码
-- 删除用户
-
-编辑用户时，密码输入框留空表示不修改密码。
-
-### import.js
-
-负责数据采集入库页面：
-
-- 卡片式展示所有数据源。
-- 每个卡片显示：名称、说明、URL、状态、最近下载/解析/入库时间、记录数、错误信息。
-- 操作按钮：下载、解析、入库、一键更新。
-- 操作中显示 loading 阶段（downloading / parsing / importing / completed / failed）。
-- 错误信息显示在对应数据源卡片中。
-
-### app.js
-
-包含两个模块：
-
-- `AppModule`：标签页切换（含四个标签）和登录生命周期入口。
-- `FaaOpenskyModule`：地图、航班图层、FAA 匹配、详情面板。
-
-`FaaOpenskyModule.initialize()` 只应在登录后调用一次。
-
-分析模块的数据来源已改为 SQLite：
-- `loadFromDatabase()` — 通过 `analysis:getFlights` + `analysis:getStatistics` 加载数据。
-- `preloadFaaCache()` — 通过 `analysis:getFaaInfoBulk` 批量获取 FAA 匹配数据。
-- `showFaaInfo()` — 通过 `analysis:getFaaInfo` 获取单条 FAA 记录。
-- 不再调用 `refreshFlights()`、`refreshFaaDatabase()` 等外部 API 方法。
-- 工具栏仅保留一个"刷新分析数据"按钮（重新查询数据库）。
-
-### ntsb.js
-
-负责 NTSB 事故趋势分析页面：
-
-- 读取筛选项：年份、国家、州/地区、严重度、飞机类别、损坏程度。
-- 通过 `window.electronAPI.getNtsbXxx(filters)` 获取聚合数据。
-- 使用 SVG 绘制年度趋势、严重度、天气和原因分类图表。
-- 使用 Leaflet 绘制事故空间聚合圆点。
-- 点击年份、严重度、地图区域、飞机类别时更新筛选并联动刷新。
-- 不展示单事故详情，也不在前端保存全量事故明细。
-
-## 依赖说明
-
-| 依赖 | 用途 |
-| --- | --- |
-| `electron` | 桌面应用运行时 |
-| `electron-builder` | 打包 |
-| `better-sqlite3` | SQLite 数据库 |
-| `bcryptjs` | 密码哈希 |
-| `adm-zip` | FAA ZIP 解析 |
-| `mdb-reader` | NTSB Access MDB 解析 |
-| `leaflet` | 地图渲染，当前从 CDN 加载 |
-
-`better-sqlite3` 是原生模块。安装依赖后需要面向 Electron 重建，项目通过：
-
-```json
-"postinstall": "electron-builder install-app-deps"
-```
-
-自动处理。
-
-## 开发命令
-
-```bash
-npm install
-npm start
-npm run build
-```
-
-常用检查：
-
-```bash
-node -c main.js
-node -c preload.js
-node -c src/main/userService.js
-node -c src/main/databaseService.js
-node -c src/main/dataSourceService.js
-node -c src/main/openskyDataSource.js
-node -c src/main/faaDataSource.js
-node -c src/main/ntsbDataSource.js
-node -c src/main/openskyService.js
-node -c src/main/faaService.js
-node -c src/main/cacheService.js
-node -c src/main/analysisService.js
-node -c src/main/ntsbAnalysisService.js
-node -c src/renderer/login.js
-node -c src/renderer/import.js
-node -c src/renderer/admin.js
-node -c src/renderer/app.js
-node -c src/renderer/ntsb.js
-```
-
-注意：`better-sqlite3` 重建为 Electron ABI 后，普通 Node 可能无法直接加载该模块进行运行时测试。语法检查仍可用，运行行为以 Electron 环境为准。
-
-## 添加新模块
-
-### 添加新的功能标签页
-
-推荐步骤：
-
-1. 在 `src/main/` 新建服务，例如 `xxxService.js`。
-2. 在 `main.js` 添加 `setupXxxIpcHandlers()`。
-3. 在 `preload.js` 暴露必要 API。
-4. 在 `src/renderer/` 新建前端模块（如 `xxx.js`）。
-5. 在 `index.html` 添加标签页 DOM、模块容器和脚本引用。
-6. 在 `AppModule` 中加入标签页切换和 `onActivate()` 逻辑。
-
-约定：
-
-- 主进程负责数据、文件、网络和数据库。
-- 渲染进程只负责 UI 和用户交互。
-- 不在渲染进程直接读取文件或访问数据库。
-
-### 添加新的数据源
-
-添加新数据源只需三步，无需改动 UI：
-
-1. 在 `src/main/` 创建数据源模块（如 `airportDataSource.js`），实现标准接口：
-   - `sourceId`、`name`、`description`、`url`
-   - `download()`、`parse()`、`importToDatabase()`、`updateAll()`、`getStatus()`
-2. 在 `dataSourceService.js` 中注册：
-   ```js
-   const airportDataSource = require('./airportDataSource');
-   registry.set(airportDataSource.sourceId, airportDataSource);
-   ```
-3. 如需新建数据库表，在 `databaseService.js` 的 `initializeSchema()` 中添加建表语句。
-
-前端通过 `dataSources:list` 自动发现新数据源并渲染卡片，**无需额外修改 HTML、CSS 或 UI 代码**。
-
-## 常见问题
-
-### 保持登录后 FAA 模块没有启动
-
-确认 `index.html` 脚本顺序为：
+`main.js` 的当前启动顺序：
+
+1. 将 Electron `userData` 指向 `data/electron-profile`。
+2. `keyService.initialize()` 读取或创建 `data/keyring.json`。
+3. 首次启动时创建密态 schema 和默认管理员 `admin / admin123`。
+4. 非首次启动且存在 `login-session.json` 时，尝试恢复保持登录。
+5. 创建 BrowserWindow。
+6. 注册 Auth、Users、DataSources、Analysis、NTSB 和 Shell IPC。
+7. 渲染端 `login.js` 调用 `auth:me`，决定显示登录页或主界面。
+
+首次初始化失败、keyring 格式无效或发现旧版明文数据库时采用 fail-closed，不会回退到明文存储。
+
+渲染脚本顺序：
 
 ```html
 admin.js
 import.js
+ntsb.js
 app.js
 login.js
 ```
 
-`login.js` 必须最后加载，否则恢复 session 时可能找不到 `AppModule`。
+`login.js` 最后加载，登录或恢复成功后调用 `AppModule.onLogin()`。
 
-### 初始账号提示不出现
+## 便携目录
 
-提示只在 `users` 表为空并自动创建默认账号的那次启动出现。如果数据库已有用户，不会显示默认账号提示。
+开发模式：
 
-### 分析页面无数据
+```text
+<project>/data/
+```
 
-分析页面完全基于 SQLite 运行。如果没有数据：
+portable 模式：
 
-1. 切换到”数据采集入库”页面。
-2. 对需要的数据源点击”一键更新”（或分步：下载 → 解析 → 入库）。
-3. FAA/OpenSky 分析页需要 `opensky_states` 和 `faa_aircraft`。
-4. NTSB 事故趋势分析页需要 `ntsb_aviation_accidents`。
-5. 切换回对应分析页面，点击刷新或重新切换标签页触发加载。
+```text
+<exe-directory>/data/
+```
 
-分析页面不会自动触发任何下载或外部 API 请求。
+项目不使用 Windows DPAPI，也不将业务数据写入 AppData。移动应用时应整体移动可执行文件和 `data/`。
 
-### Windows 打包失败，提示符号链接权限
+## 密钥体系
 
-`electron-builder` 下载并解压 `winCodeSign` 时可能需要创建符号链接。解决方式：
+### keyring
 
-- 开启 Windows Developer Mode。
-- 或使用管理员权限运行构建命令。
+`src/main/security/keyService.js` 管理两级密钥：
 
-### 不应再使用的文件
+```text
+登录密码或会话令牌
+  -> scrypt(N=32768, r=8, p=1)
+  -> 解封 root key
+  -> 解封一个或多个 versioned master key
+  -> HKDF-SHA-256 派生业务子密钥
+```
 
-以下文件已废弃：
+`data/keyring.json` 当前格式版本为 2，包含：
 
-- `data/users.json`
-- `data/session.json`
+- 当前主密钥版本
+- scrypt 参数
+- 用户密码解锁槽
+- 可撤销的保持登录会话槽
+- 由 root key 封装的版本化主密钥
 
-如果本地仍存在，它们不会被当前代码读取。
+写入 keyring 使用临时文件和原子替换。主密钥、root key 和登录密码均不以明文写入文件。
 
-### 数据采集入库操作说明
+### 子密钥域
 
-- 所有数据源**不会自动下载**，需要用户在"数据采集入库"页面手动点击按钮。
-- **一键更新** = 下载 + 解析 + 入库，适合首次使用或需要完全刷新数据时。
-- 单独点击**下载**仅保存原始数据到 `data/` 目录，不会写入数据库。
-- 单独点击**解析**读取本地缓存，不发起网络请求。
-- 单独点击**入库**执行解析 + 写入数据库两步操作。
-- 下次软件启动后，数据采集入库页面显示的是上次操作的状态（记录数、各步骤时间等）。
+`cryptoService.js` 和其他安全模块使用显式 domain 分离密钥，主要包括：
 
-### 分析页面和采集页面的关系
+- 通用 payload 加密
+- 用户名、角色盲索引
+- OpenSky ICAO 与 FAA Mode-S 连接
+- NTSB event、aircraft 连接
+- NTSB 分析维度
+- narratives/findings 文本 term
+- 原始缓存加密
 
-分析页面和采集页面共享同一数据源（SQLite），分工明确：
+禁止在不同字段间随意复用 domain。
 
-- **数据采集入库页面**：负责下载原始数据、解析、写入 SQLite（`opensky_states` / `faa_aircraft` / `ntsb_*` 表）。
-- **FAA/OpenSky 分析页面**：只读 SQLite，地图展示、FAA 匹配、详情查询。
-- **NTSB 事故趋势分析页面**：只读 SQLite，展示事故 KPI、趋势、空间聚合、飞机画像、天气和原因分类。
+### payload 加密
 
-分析页面不再直接访问文件或 API。所有数据必须先在采集页面入库，才能在分析页面查看。
+敏感 payload 使用 AES-256-GCM：
+
+- 12 字节随机 nonce
+- 16 字节认证 tag
+- envelope 内含格式版本和密钥版本
+- AAD 绑定 `recordType`、`field` 和 `recordId`
+
+认证失败必须返回受控错误，不能忽略或降级读取。
+
+### 盲索引
+
+精确查询和连接使用：
+
+```text
+HMAC-SHA-256(derived domain key, canonicalized value)
+```
+
+token 以固定 32 字节 BLOB 存储。所有写入和查询必须复用 `normalizers.js` 中的相同规范化规则。
+
+### 保持登录
+
+`rememberSessionService.js` 在用户勾选“保持登录”后：
+
+1. 生成 32 字节随机令牌。
+2. 在 keyring 中创建 `kind: session` 的可撤销解锁槽。
+3. 将 `userId`、`slotId` 和令牌写入 `data/login-session.json`。
+4. 下次启动先解锁 keyring，再读取数据库 `sessions` 验证用户一致性。
+
+明确注销会删除 `login-session.json` 并撤销对应会话槽。未勾选保持登录时，重启后必须重新输入密码。
+
+该文件不包含用户名或密码，但它是可直接恢复登录的凭据。安全评估时应把它视为 bearer credential。
+
+## 密态数据库
+
+`databaseService.js` 使用 `better-sqlite3`，启用：
+
+```text
+journal_mode = WAL
+foreign_keys = ON
+busy_timeout = 5000
+trusted_schema = OFF
+```
+
+schema 版本记录于 `schema_meta`。当前不迁移旧明文数据库。
+
+### 用户
+
+`users` 保存：
+
+- 随机 `record_id`
+- `username_token`
+- `role_token`
+- bcrypt `password_hash`
+- 加密用户 payload
+- `key_version`
+- 创建时间和最后登录时间
+
+登录流程：
+
+1. 登录密码解锁 keyring。
+2. 规范化用户名并计算 `username_token`。
+3. 使用 token 定位用户。
+4. bcrypt 验证密码。
+5. 解密最小用户 payload。
+6. 写入单会话 `sessions`。
+
+用户搜索在主进程中解密少量用户后过滤，不建立用户名模糊搜索索引。
+
+### OpenSky
+
+`opensky_states` 主要保存：
+
+- `snapshot_time`
+- `icao_token`
+- `has_position_token`
+- `payload_cipher`
+- `key_version`
+
+`analysisService` 只读取最新快照，在主进程解密后返回兼容 UI 的对象。
+
+### FAA
+
+`faa_aircraft` 主要保存：
+
+- 与 OpenSky 共用连接域的 `mode_s_token`
+- `n_number_token`
+- `mfr_model_token`
+- `payload_cipher`
+- `key_version`
+
+FAA 与 OpenSky 的匹配由 token JOIN 完成，不需要解密后逐条比较。
+
+### NTSB
+
+NTSB 不再将 Access 表原样明文复制到 SQLite，而是拆分为：
+
+| 表 | 用途 |
+| --- | --- |
+| `ntsb_events_secure` | 完整事件 payload 密文 |
+| `ntsb_aircraft_secure` | 完整飞机 payload 密文 |
+| `ntsb_records_secure` | narratives、findings、crew、engines、injury 密文 |
+| `ntsb_event_facts` | 事件筛选和聚合 token |
+| `ntsb_aircraft_facts` | 飞机类别、制造商、机型、损坏和机龄 token |
+| `ntsb_finding_facts` | finding 分类和描述分组 token |
+| `secure_dimensions` | token 到加密显示值的维度字典 |
+| `secure_terms` | narratives/findings 加密倒排索引 |
+
+事件与飞机连接分别使用共享的 NTSB event token 和 aircraft token。
+
+### 维度字典
+
+SQL 按 token 聚合后，`dimensionService.getMany()` 批量读取并解密显示值。数据库中不为了图表标签保留明文国家、州、天气、严重度、飞机类别或 finding 分类。
+
+### 范围与全文
+
+- 年份通过离散 `year_token` 集合查询，不使用顺序保持加密。
+- 能见度、风速和机龄使用 `buckets.js` 生成离散桶。
+- narratives 和 findings 使用 `searchIndexService.js` 生成分域 term token。
+
+## 加密缓存
+
+数据源缓存文件：
+
+| 数据源 | 文件 |
+| --- | --- |
+| OpenSky | `opensky_states.securecache` |
+| FAA | `faa-aircraft.securecache` |
+| NTSB | `ntsb-aviation.securecache` |
+
+`secureCacheService.js` 使用 1 MiB 默认分块：
+
+- 每块独立 AES-256-GCM nonce 和 tag
+- header 经过认证
+- AAD 绑定缓存 ID、块序号、块数量和原文长度
+- 可检测篡改、截断、追加和块重排
+
+缓存读取后的明文 Buffer 应尽快清零。
+
+## 数据源流程
+
+统一接口由 `dataSourceService.js` 调度：
+
+```js
+{
+  sourceId,
+  name,
+  description,
+  url,
+  download,
+  parse,
+  importToDatabase,
+  updateAll,
+  getStatus,
+  getCacheFiles
+}
+```
+
+数据流：
+
+```text
+remote source
+  -> download
+  -> encrypted .securecache
+  -> parse in main process
+  -> encrypted payload + blind indexes in SQLite
+  -> aggregate/read services
+  -> IPC
+  -> renderer
+```
+
+`import_status` 保存记录数和最近下载、解析、入库时间。
+
+### NTSB 坐标规则
+
+`security/geo.js` 统一处理坐标：
+
+- 空值和空字符串视为无坐标
+- 纬度必须位于 `[-90, 90]`
+- 经度必须位于 `[-180, 180]`
+- 精确 `(0,0)` 视为无效
+- 单独纬度 0 或经度 0 仍可有效
+
+无效坐标不会生成 `geo_cell_token`，分析服务和前端地图还会再次过滤 `(0,0)`。
+
+## NTSB 分析页面
+
+当前顶部筛选项：
+
+- 起始年份
+- 结束年份
+- 国家
+- 州/地区
+- 严重度
+
+飞机类别和损坏程度筛选已从 UI 删除。飞机画像中的类别、制造商列表为只读展示，禁止点击筛选。
+
+页面加载通过 7 个聚合 IPC 获取：
+
+- KPI 总览
+- 年度趋势
+- 严重度分布
+- 地图聚合
+- 飞机画像
+- 光照天气
+- finding 分类
+
+注意：这些 IPC 内部目前使用同步 `better-sqlite3`，运行在 Electron 主线程。新增高成本筛选或 JOIN 前必须检查查询计划，尤其避免在大表上反复执行相关 `EXISTS` 子查询。
+
+## IPC
+
+### Auth
+
+| 通道 | 参数 | 返回 |
+| --- | --- | --- |
+| `auth:login` | `username, password, rememberLogin` | `{ success, user?, error? }` |
+| `auth:logout` | 无 | `{ success, error? }` |
+| `auth:me` | 无 | 当前用户或 `null` |
+| `auth:bootstrapInfo` | 无 | `{ defaultAdminCreated }` |
+
+### Users
+
+| 通道 | 参数 |
+| --- | --- |
+| `users:list` | `{ page, limit, search }` |
+| `users:create` | `username, password` |
+| `users:update` | `id, username, password?` |
+| `users:delete` | `id` |
+| `users:resetPassword` | `id, newPassword` |
+
+### FAA/OpenSky Analysis
+
+- `analysis:getFlights`
+- `analysis:getFlight`
+- `analysis:getStatistics`
+- `analysis:getFaaInfo`
+- `analysis:getFaaInfoBulk`
+
+### NTSB Analysis
+
+- `ntsb:getFilterOptions`
+- `ntsb:getOverview`
+- `ntsb:getYearlyTrend`
+- `ntsb:getSeverityDistribution`
+- `ntsb:getGeoAggregation`
+- `ntsb:getAircraftBreakdown`
+- `ntsb:getWeatherBreakdown`
+- `ntsb:getFindingBreakdown`
+- `ntsb:searchNarratives`
+- `ntsb:searchFindings`
+
+### Data Sources
+
+- `dataSources:list`
+- `dataSources:status`
+- `dataSources:download`
+- `dataSources:parse`
+- `dataSources:import`
+- `dataSources:updateAll`
+- `dataSources:cleanCache`
+
+## 开发约定
+
+- 数据库、文件、网络和密码学代码放在主进程。
+- 渲染进程只接收完成展示所需的数据。
+- 不向日志写入密码、密钥、查询 token、完整密文或解密 payload。
+- 新敏感字段进入加密 payload；只有完成查询必需的字段才增加分域 token。
+- 新 token 必须定义明确 normalizer 和 domain。
+- 不增加明文兼容列或明文查询回退。
+- 手工编辑使用现有模块边界，避免把数据库逻辑放进 IPC handler。
+- 修改共享安全模块时必须增加测试。
+- 密态入库可能耗时较长；批量路径应使用事务、prepared statement 和缓存维度 token。
+
+## 测试
+
+运行单元测试：
+
+```powershell
+npm test
+```
+
+当前覆盖：
+
+- Unicode normalizer
+- AES-GCM nonce、AAD 和篡改检测
+- 盲索引稳定性与 domain 隔离
+- 主密钥轮换后的旧密文解密
+- 用户密码槽解锁
+- 保持登录会话槽创建、恢复和撤销
+- 加密缓存截断、篡改和块重排检测
+- 文本 token 与离散桶
+- 无坐标和 `(0,0)` 坐标规则
+
+Electron 冒烟测试：
+
+```powershell
+npm run test:electron
+```
+
+该测试使用 Electron ABI 验证 schema、登录、密文读写、FAA/OpenSky token JOIN 和 NTSB 聚合。
+
+语法检查示例：
+
+```powershell
+node --check main.js
+node --check preload.js
+node --check src/main/security/keyService.js
+node --check src/main/ntsbDataSource.js
+node --check src/main/ntsbAnalysisService.js
+node --check src/renderer/login.js
+node --check src/renderer/ntsb.js
+```
+
+由于 `better-sqlite3` 针对 Electron ABI 构建，普通 Node 进程可能无法加载数据库模块。需要数据库的脚本应通过 Electron 运行。
+
+## 打包
+
+```powershell
+npm run build
+```
+
+`electron-builder` 输出 Windows portable 可执行文件到 `dist/`。`package.json` 的 `files` 已包含主入口、preload、`src/**/*` 和运行依赖。
+
+## 添加功能
+
+### 新数据源
+
+1. 在 `src/main/` 新建数据源模块并实现统一接口。
+2. 在 `dataSourceService.js` 注册。
+3. 如需新表，在 `databaseService.initializeSchema()` 添加 schema 和索引。
+4. 为敏感 payload、token normalizer、缓存 ID 和测试做安全评审。
+
+数据源卡片通过 `dataSources:list` 自动生成，通常无需修改前端 HTML。
+
+### 新查询维度
+
+1. 定义规范化规则。
+2. 定义独立 dimension domain。
+3. 入库时调用 `dimensionService.put()`。
+4. 在事实表增加 token 列和匹配索引。
+5. 查询按 token 筛选或分组。
+6. 使用 `dimensionService.getMany()` 批量恢复显示值。
+7. 用 `EXPLAIN QUERY PLAN` 验证索引。
+
+### 新标签页
+
+1. 新建主进程 service。
+2. 在 `main.js` 注册最小 IPC。
+3. 在 `preload.js` 暴露业务 API。
+4. 新建 renderer 模块和 DOM。
+5. 接入 `AppModule` 的登录生命周期和标签切换。
+
+## 常见问题
+
+### 无法登录
+
+- 确认使用正确账号和密码。
+- 默认账号只在首次数据库初始化时创建。
+- 密码必须同时解锁 keyring 并通过 bcrypt。
+- `keyring.json` 与 `app.db` 必须来自同一套 `data/`。
+- 删除或替换其中任意一个都可能使现有数据无法解密。
+
+### 保持登录未恢复
+
+- 确认登录时勾选了“保持登录”。
+- 确认 `keyring.json`、`login-session.json` 和 `app.db` 均存在且匹配。
+- 显式注销会撤销保持登录。
+- 会话文件无效时应用会删除它并回到登录页。
+
+### NTSB 入库耗时长
+
+NTSB 导入需要解析 MDB，并对事件、飞机及其他记录执行 payload 加密、盲索引、维度字典和全文 term 计算，明显慢于明文复制是合理的。优化时应优先减少重复规范化、重复维度写入和事务外操作，不能通过保留明文字段换取速度。
+
+### NTSB 筛选卡顿
+
+当前 UI 仅保留事件事实表上已有索引支持的筛选。新增飞机类别、制造商或损坏程度筛选前，应增加合适的联合索引并将相关 `EXISTS` 改为先筛选 `event_token` 再连接，避免主线程分钟级阻塞。
+
+### 地图没有部分事故
+
+缺失、越界或 `(0,0)` 坐标会被主动丢弃，这是当前数据质量规则，不是地图故障。
+
+### 旧明文数据库无法启动
+
+当前版本不迁移旧 schema。开发环境可在确认无需保留数据后删除：
+
+```text
+data/app.db
+data/app.db-wal
+data/app.db-shm
+data/keyring.json
+data/login-session.json
+```
+
+然后重新启动并重新导入数据。不要只删除 keyring 而保留数据库。

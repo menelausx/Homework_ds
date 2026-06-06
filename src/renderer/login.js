@@ -12,6 +12,7 @@ var LoginModule = (function () {
   var btnLogin = document.getElementById('btn-login');
   var inputUsername = document.getElementById('login-username');
   var inputPassword = document.getElementById('login-password');
+  var inputRemember = document.getElementById('login-remember');
   var currentUserDisplay = document.getElementById('current-user-display');
   var tabLogout = document.getElementById('tab-logout');
 
@@ -52,6 +53,7 @@ var LoginModule = (function () {
     if (defaultAdminHint) defaultAdminHint.style.display = 'none';
     if (inputUsername) inputUsername.value = '';
     if (inputPassword) inputPassword.value = '';
+    if (inputRemember) inputRemember.checked = false;
     if (showDefaultAdminHint) {
       showInitialAccountHint();
     }
@@ -87,7 +89,7 @@ var LoginModule = (function () {
   /**
    * Perform login with the given credentials.
    */
-  async function doLogin(username, password) {
+  async function doLogin(username, password, rememberLogin) {
     clearStatus();
 
     if (!username || !username.trim()) {
@@ -103,7 +105,7 @@ var LoginModule = (function () {
     btnLogin.textContent = '登录中...';
 
     try {
-      var result = await window.electronAPI.login(username, password);
+      var result = await window.electronAPI.login(username, password, rememberLogin === true);
       if (result.success) {
         currentUser = result.user;
         if (currentUserDisplay) {
@@ -156,7 +158,7 @@ var LoginModule = (function () {
 
   if (btnLogin) {
     btnLogin.addEventListener('click', function () {
-      doLogin(inputUsername.value, inputPassword.value);
+      doLogin(inputUsername.value, inputPassword.value, inputRemember && inputRemember.checked);
     });
   }
 
@@ -164,7 +166,7 @@ var LoginModule = (function () {
   if (inputPassword) {
     inputPassword.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') {
-        doLogin(inputUsername.value, inputPassword.value);
+        doLogin(inputUsername.value, inputPassword.value, inputRemember && inputRemember.checked);
       }
     });
   }
